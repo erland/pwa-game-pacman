@@ -5,8 +5,7 @@ This plan describes how an LLM coding assistant will implement the Pac-Man game 
 ## Phase 0 – Project Assessment & Tooling
 1. Review the existing `@erlandlindmark/pwa-game-2d-framework` integration in `src/` to understand boot, preload, game, and UI scenes.
 2. Audit dependencies in `package.json`; update Phaser or tooling only if necessary.
-3. Set up linting/testing scripts (ESLint, Vitest) if absent to support later automation.
-4. Inventory existing assets under `public/` or `src/assets/`; document gaps (sprites, sound effects, tilemap).
+3. Inventory existing assets under `public/` or `src/assets/`; document gaps (sprites, sound effects, tilemap).
 
 ## Phase 1 – Asset & Data Preparation
 1. Source or create Pac-Man–style spritesheets (Pac-Man, ghosts, pellets, fruit, UI icons) sized for a 28x31 tile grid.
@@ -45,7 +44,7 @@ This plan describes how an LLM coding assistant will implement the Pac-Man game 
 4. Verify 60 FPS performance by profiling sprite batching and update loops; optimize allocations.
 
 ## Phase 6 – Testing & Delivery
-1. Implement automated tests for critical logic (mode scheduler, score progression, input buffer) using Vitest or Jest.
+1. Implement automated tests for critical logic (mode scheduler, score progression, input buffer) using Jest.
 2. Create manual test checklists for desktop Chrome/Safari and iOS Safari, covering controls, performance, and orientation changes.
 3. Package documentation updates summarizing architecture, assets, and testing procedures.
 4. Provide final build instructions and ensure PWA manifest/service worker remain functional.
