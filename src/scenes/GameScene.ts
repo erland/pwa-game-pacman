@@ -466,8 +466,22 @@ export class GameScene extends BasePlayScene {
       if (ghost.isEaten()) {
         return;
       }
-      const distance = Phaser.Math.Distance.Between(ghost.x, ghost.y, this.pacman.x, this.pacman.y);
-      if (distance > TILE_SIZE * 0.6) {
+      const ghostBounds = ghost.getBounds();
+      const pacmanBounds = this.pacman.getBounds();
+
+      if (
+        !Number.isFinite(ghostBounds.x) ||
+        !Number.isFinite(ghostBounds.y) ||
+        !Number.isFinite(pacmanBounds.x) ||
+        !Number.isFinite(pacmanBounds.y)
+      ) {
+        return;
+      }
+
+      Phaser.Geom.Rectangle.Inflate(ghostBounds, -4, -4);
+      Phaser.Geom.Rectangle.Inflate(pacmanBounds, -4, -4);
+
+      if (!Phaser.Geom.Intersects.RectangleToRectangle(ghostBounds, pacmanBounds)) {
         return;
       }
 
