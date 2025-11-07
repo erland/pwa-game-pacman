@@ -252,16 +252,12 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     const reverse = this.currentDirection ? OPPOSITES[this.currentDirection] : null;
 
     for (const direction of Object.values(PacManDirection)) {
-      if (direction === reverse && this.mode !== GhostMode.Eaten) {
-        continue;
-      }
-
       if (this.canMoveInDirection(direction)) {
         directions.push(direction);
       }
     }
 
-    if (reverse && directions.length > 1) {
+    if (reverse && this.mode !== GhostMode.Eaten && directions.length > 1) {
       const idx = directions.indexOf(reverse);
       if (idx !== -1) {
         directions.splice(idx, 1);
