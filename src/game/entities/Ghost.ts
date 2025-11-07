@@ -170,7 +170,9 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       return;
     }
 
-    if (this.leavingHouse && this.y <= this.doorRect.top - TILE_SIZE / 2) {
+    const exitThreshold = this.doorRect.top - TILE_SIZE;
+
+    if (this.leavingHouse && this.y <= exitThreshold) {
       this.leavingHouse = false;
       this.mode = this.lastGlobalMode;
       this.updateAppearance();
@@ -327,8 +329,32 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     const vec = DIRECTION_VECTORS[this.currentDirection];
     const speed = BASE_SPEED * GHOST_SPEED_MULTIPLIERS[this.mode];
     const distance = (speed * dtMs) / 1000;
+
+    if (!Number.isFinite(distance)) {
+      this.logDebug(
+        'Aborting move due to non-finite distance (dt=%f, speed=%f, mode=%s)',
+        dtMs,
+        speed,
+        this.mode,
+      );
+      this.currentDirection = null;
+      return;
+    }
+
     let nextX = this.x + vec.x * distance;
     let nextY = this.y + vec.y * distance;
+
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) {
+      this.logDebug(
+        'Computed non-finite position while moving %s (nextX=%f, nextY=%f)',
+        this.currentDirection,
+        nextX,
+        nextY,
+      );
+      this.alignToTileCenter();
+      this.currentDirection = null;
+      return;
+    }
 
     if (this.willCollide(nextX, nextY)) {
       this.logDebug(
