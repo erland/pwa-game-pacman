@@ -170,8 +170,10 @@ export class PacMan extends Phaser.GameObjects.Sprite {
   }
 
   private isBlocked(worldX: number, worldY: number): boolean {
-    const tile = this.mazeLayer.getTileAtWorldXY(worldX, worldY, true);
-    return tile !== null && tile.index !== TileIndex.Empty;
+    // Let Phaser return null for empty cells
+    const tile = this.mazeLayer.getTileAtWorldXY(worldX, worldY); // <-- removed 'true'
+    // Blocked if there is actually a tile (wall/door); empty corridors are null
+    return !!tile;
   }
 
   private canMoveInDirection(direction: PacManDirection, requireCenter = true): boolean {
