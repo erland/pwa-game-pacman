@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "init": "node scripts/init.mjs"
+    "init": "node scripts/init.mjs",
+    "generate-audio": "node scripts/generate-audio.mjs"
   },
   "dependencies": {
     "phaser": "^3.80.0",
