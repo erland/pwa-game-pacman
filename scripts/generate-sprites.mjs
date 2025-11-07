@@ -136,53 +136,58 @@ await fs.writeFile(OUTPUT_FILE, sheet.toPngBuffer());
 console.log(`Generated ${OUTPUT_FILE}`);
 
 function drawPacman(img, ox, oy, direction) {
+  // Clear the 1 tile area first
   fillRect(img, ox, oy, TILE_SIZE, TILE_SIZE, transparent);
-  const cx = ox + TILE_SIZE / 2;
-  const cy = oy + TILE_SIZE / 2;
+
+  // Work in local tile coordinates to keep the math simple
+  const cx = TILE_SIZE / 2;
+  const cy = TILE_SIZE / 2;
   const radius = TILE_SIZE / 2 - 1;
 
-  const startAngles = {
-    right: (-30 * Math.PI) / 180,
-    up: (60 * Math.PI) / 180,
-    left: (150 * Math.PI) / 180,
-    down: (240 * Math.PI) / 180,
+  // atan2 convention: 0 = right, CCW positive
+  const base = {
+    right: 0,
+    up: -Math.PI / 2,
+    left: Math.PI,
+    down: Math.PI / 2,
+  }[direction];
+
+  // total mouth opening = 2 * mouth (e.g. 60° total here)
+  const mouth = Math.PI / 6;
+
+  // smallest signed difference in [-π, π]
+  const angleDiff = (a, b) => {
+    let d = a - b;
+    if (d <= -Math.PI) d += 2 * Math.PI;
+    if (d > Math.PI) d -= 2 * Math.PI;
+    return d;
   };
 
-  const endAngles = {
-    right: (210 * Math.PI) / 180,
-    up: (300 * Math.PI) / 180,
-    left: (390 * Math.PI) / 180,
-    down: (480 * Math.PI) / 180,
-  };
-
-  const start = startAngles[direction];
-  const end = endAngles[direction];
-
-  for (let y = 0; y < TILE_SIZE; y += 1) {
-    for (let x = 0; x < TILE_SIZE; x += 1) {
-      const px = x + 0.5;
-      const py = y + 0.5;
-      const dx = px - (cx - ox);
-      const dy = py - (cy - oy);
-      const dist = Math.sqrt(dx * dx + dy * dy);
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const dx = (x + 0.5) - cx;
+      const dy = (y + 0.5) - cy;
+      const dist = Math.hypot(dx, dy);
       if (dist <= radius) {
-        const angle = Math.atan2(dy, dx);
-        const normalized = angle < 0 ? angle + 2 * Math.PI : angle;
-        if (isAngleBetween(normalized, start, end)) {
+        const a = Math.atan2(dy, dx);
+        // Fill everything EXCEPT the mouth wedge centered on 'base'
+        if (Math.abs(angleDiff(a, base)) >= mouth) {
           setPixel(img, ox + x, oy + y, yellow);
         }
       }
     }
   }
 
+  // Eye: same offsets you had, applied to world coords
   const eyeOffset = {
     right: { x: 4, y: -4 },
-    up: { x: -3, y: -5 },
-    left: { x: -4, y: -4 },
-    down: { x: -2, y: 3 },
+    up:    { x: -3, y: -5 },
+    left:  { x: -4, y: -4 },
+    down:  { x: -2, y:  3 },
   }[direction];
-  const eyeX = Math.round(cx + eyeOffset.x);
-  const eyeY = Math.round(cy + eyeOffset.y);
+
+  const eyeX = Math.round(ox + cx + eyeOffset.x);
+  const eyeY = Math.round(oy + cy + eyeOffset.y);
   fillCircle(img, eyeX, eyeY, 1, white);
   fillCircle(img, eyeX, eyeY, 0, black);
 }

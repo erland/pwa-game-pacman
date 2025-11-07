@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BaseMenuScene } from '@erlandlindmark/pwa-game-2d-framework';
+import { BaseMenuScene, defaultSceneKeys } from '@erlandlindmark/pwa-game-2d-framework';
 
 /** Minimal menu powered by BaseMenuScene (title + pulsing hint + Enter/Space/Pointer to start). */
 export class MenuScene extends BaseMenuScene {
@@ -7,6 +7,10 @@ export class MenuScene extends BaseMenuScene {
   protected buildBackground(): void {
     const { width, height } = this.scale;
     this.add.rectangle(0, 0, width, height, 0x101018).setOrigin(0, 0);
+  }
+
+  protected getSceneKeys() {
+    return { ...defaultSceneKeys, play: 'Game' };
   }
 
   /** Hook to add extra UI without overriding create(). */

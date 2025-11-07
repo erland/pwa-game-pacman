@@ -1,4 +1,4 @@
-import { BaseBootScene, defaultTheme } from '@erlandlindmark/pwa-game-2d-framework';
+import { BaseBootScene, defaultSceneKeys, defaultTheme } from '@erlandlindmark/pwa-game-2d-framework';
 import { AUDIO_CONFIG, MAP_CONFIG, SPRITE_SHEET_CONFIG } from '../game/config';
 
 /** Ensures services are created and jumps to MainMenu. */
@@ -11,6 +11,10 @@ export class BootScene extends BaseBootScene {
   /** Example UI override: request fullscreen automatically on start. */
   protected getServiceOverrides() {
     return { ui: { autoFullscreen: false } };
+  }
+
+  protected getSceneKeys() {
+    return { ...defaultSceneKeys, play: 'Game' };
   }
 
   /** Preload assets here if your menu/play needs them immediately. */
