@@ -24,12 +24,13 @@ export const AUDIO_CONFIG = {
   fruitSpawn: { key: 'sfx-fruit-spawn', url: 'audio/fruit_spawn.wav' },
 } as const;
 
+// Tile indices are sourced directly from the Tiled map layers.
 export enum TileIndex {
   Empty = 0,
-  Wall = 1,
-  GhostDoor = 2,
-  Pellet = 3,
-  PowerPellet = 4,
+  Wall = 2,
+  GhostDoor = 3,
+  Pellet = 4,
+  PowerPellet = 5,
 }
 
 export enum GhostName {
