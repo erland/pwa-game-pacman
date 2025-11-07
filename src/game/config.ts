@@ -26,10 +26,10 @@ export const AUDIO_CONFIG = {
 
 export enum TileIndex {
   Empty = 0,
-  Wall = 1,
-  GhostDoor = 2,
-  Pellet = 3,
-  PowerPellet = 4,
+  Wall = 2,
+  GhostDoor = 3,
+  Pellet = 4,
+  PowerPellet = 5,
 }
 
 export enum GhostName {
