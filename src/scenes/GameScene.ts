@@ -165,6 +165,8 @@ export class GameScene extends BasePlayScene {
     }
 
     this.state = next;
+    // eslint-disable-next-line no-console
+    console.log(`[GameScene] Entering state ${next}`);
 
     switch (next) {
       case GamePhase.Ready:
@@ -390,6 +392,8 @@ export class GameScene extends BasePlayScene {
     if (!ghost) {
       return;
     }
+    // eslint-disable-next-line no-console
+    console.log(`[GameScene] Releasing ghost ${name}`);
     ghost.releaseFromHouse();
     const timer = this.ghostReleaseTimers.get(name);
     if (timer) {

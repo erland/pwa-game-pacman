@@ -187,7 +187,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     if (this.isAtTileCenter()) {
       const nextDirection = this.chooseDirection(context);
       if (nextDirection) {
+        this.logDebug('Setting direction to %s at tile center', nextDirection);
         this.currentDirection = nextDirection;
+      } else {
+        this.logDebug('No direction selected while at tile center');
       }
     }
 
@@ -200,6 +203,8 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       if (fallbackDirection) {
         this.logDebug('Recovering with fallback direction %s', fallbackDirection);
         this.currentDirection = fallbackDirection;
+      } else {
+        this.logDebug('No fallback direction available after collision');
       }
     }
 
@@ -236,6 +241,12 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
 
     const tilePos = this.getTilePosition();
     const choices = this.getAvailableDirections();
+    this.logDebug(
+      'Evaluating directions from tile (%d, %d); available: [%s]',
+      tilePos.x,
+      tilePos.y,
+      choices.join(', ') || 'none',
+    );
     if (choices.length === 0) {
       this.logDebug('No available directions from tile (%d, %d)', tilePos.x, tilePos.y);
       return this.currentDirection;
@@ -247,6 +258,12 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     }
 
     const target = this.getTargetTile(context);
+    this.logDebug(
+      'Target tile while in %s mode: (%d, %d)',
+      this.mode,
+      target.x,
+      target.y,
+    );
     let bestDirection = choices[0];
     let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -261,6 +278,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       }
     }
 
+    this.logDebug('Choosing direction %s with distance %f', bestDirection, bestDistance);
     return bestDirection;
   }
 
@@ -269,7 +287,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     const reverse = this.currentDirection ? OPPOSITES[this.currentDirection] : null;
 
     for (const direction of Object.values(PacManDirection)) {
-      if (this.canMoveInDirection(direction)) {
+      if (this.canMoveInDirection(direction, true)) {
         directions.push(direction);
       }
     }
@@ -335,6 +353,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
 
     this.x = nextX;
     this.y = nextY;
+    this.logDebug('Moved %s to (%f, %f)', this.currentDirection, this.x, this.y);
     this.snapPerpendicularAxis();
   }
 
@@ -394,20 +413,61 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     return this.mode === GhostMode.Eaten || this.leavingHouse;
   }
 
-  private canMoveInDirection(direction: PacManDirection): boolean {
+  private canMoveInDirection(direction: PacManDirection, trace = false): boolean {
     const { tileX, tileY } = this.getTilePosition();
     const vec = DIRECTION_VECTORS[direction];
-    const nextTile = this.mazeLayer.getTileAt(tileX + vec.x, tileY + vec.y);
+    const targetX = tileX + vec.x;
+    const targetY = tileY + vec.y;
+    const nextTile = this.mazeLayer.getTileAt(targetX, targetY);
 
-    if (!nextTile || nextTile.index <= TileIndex.Empty) {
+    if (!nextTile) {
+      if (trace) {
+        this.logDebug('Direction %s -> tile (%d, %d) has no tile (passable)', direction, targetX, targetY);
+      }
+      return true;
+    }
+
+    if (nextTile.index <= TileIndex.Empty) {
+      if (trace) {
+        this.logDebug(
+          'Direction %s -> tile (%d, %d) index %d treated as passable',
+          direction,
+          targetX,
+          targetY,
+          nextTile.index,
+        );
+      }
       return true;
     }
 
     if (nextTile.index === TileIndex.GhostDoor) {
-      return this.canPassDoor();
+      const canPass = this.canPassDoor();
+      if (trace) {
+        this.logDebug(
+          'Direction %s -> ghost door at (%d, %d); canPass=%s (mode=%s leavingHouse=%s)',
+          direction,
+          targetX,
+          targetY,
+          canPass,
+          this.mode,
+          this.leavingHouse,
+        );
+      }
+      return canPass;
     }
 
-    return nextTile.index < TileIndex.Wall;
+    const passable = nextTile.index < TileIndex.Wall;
+    if (trace) {
+      this.logDebug(
+        'Direction %s -> tile (%d, %d) index %d is %s',
+        direction,
+        targetX,
+        targetY,
+        nextTile.index,
+        passable ? 'passable' : 'blocked',
+      );
+    }
+    return passable;
   }
 
   private snapPerpendicularAxis(): void {
