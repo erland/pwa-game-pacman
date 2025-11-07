@@ -60,7 +60,12 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     super(scene, x, y, 'pacman-characters', 4);
     this.name = options.name;
     this.mazeLayer = options.mazeLayer;
-    this.doorRect = options.doorRect.clone();
+    this.doorRect = new Phaser.Geom.Rectangle(
+      options.doorRect.x,
+      options.doorRect.y,
+      options.doorRect.width,
+      options.doorRect.height,
+    );
     this.homePosition = options.homePosition.clone();
     this.scatterTarget = new Phaser.Math.Vector2(
       GHOST_SCATTER_TARGETS[this.name].tileX,
