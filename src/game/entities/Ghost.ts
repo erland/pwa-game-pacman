@@ -379,7 +379,11 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       return blocked;
     }
 
-    const blocked = tile.index !== TileIndex.Empty;
+    if (tile.index <= TileIndex.Empty) {
+      return false;
+    }
+
+    const blocked = tile.index >= TileIndex.Wall;
     if (blocked) {
       this.logDebug('Blocked by tile index %d at (%d, %d)', tile.index, tile.x, tile.y);
     }
@@ -395,7 +399,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     const vec = DIRECTION_VECTORS[direction];
     const nextTile = this.mazeLayer.getTileAt(tileX + vec.x, tileY + vec.y);
 
-    if (!nextTile) {
+    if (!nextTile || nextTile.index <= TileIndex.Empty) {
       return true;
     }
 
@@ -403,7 +407,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       return this.canPassDoor();
     }
 
-    return nextTile.index === TileIndex.Empty;
+    return nextTile.index < TileIndex.Wall;
   }
 
   private snapPerpendicularAxis(): void {
