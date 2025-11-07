@@ -12,15 +12,15 @@ This plan describes how an LLM coding assistant will implement the Pac-Man game 
    - Use [LibreSprite](https://libresprite.github.io/) or Aseprite to author 16×16 frames, keeping each character on a separate layer.
    - Export `public/sprites/pacman-characters.png` through **File → Export → Sprite Sheet** with "By rows" layout and 1 px spacing.
 2. Author a Tiled map (`public/maps/pacman.json`) matching the classic maze, including object layers for spawn points, tunnel exits, and pellet positions.
-   - Install [Tiled 1.10+](https://www.mapeditor.org/), recreate the 28×31 maze using a 16×16 tileset, and export JSON via **File → Export As… → JSON**.
-   - Include object layers named `pellets`, `powerPellets`, `ghostHouse`, and `spawns` to preserve gameplay metadata.
+   - Install [Tiled 1.10+](https://www.mapeditor.org/), recreate or tweak the 28×31 maze using a 16×16 tileset, and export JSON via **File → Export As… → JSON** back to `public/maps/pacman.json`.
+   - Preserve the existing layers (`maze`, `pellets`, `pelletObjects`, `powerPellets`, `spawns`, `triggers`) and metadata rectangles that document pellets, power pellets, the ghost door, and tunnel exits.
 3. Generate tileset and audio placeholders instead of committing binaries:
    - Tileset: render a 16×16 tile atlas in your sprite tool and export to `public/tiles/pacman-tiles.png` with transparent background.
    - Audio: run `pnpm run generate-audio` to synthesize placeholder WAV files into `public/audio/`.
 4. Define constants/enums for tile indices, ghost names, modes, and gameplay timings in `src/game/config.ts`.
 5. Add preload logic for textures, audio, and tilemap in the Preload scene.
 
-> **Note:** Treat files under `public/` as generated artifacts. Maintain editable sources (sprite projects, Tiled maps) outside the repository and regenerate assets locally before testing.
+> **Note:** Treat files under `public/` as generated artifacts, with the exception of the text-based `public/maps/pacman.json` Tiled export that serves as the canonical maze layout. Maintain editable sources (sprite projects, Tiled maps) outside the repository and regenerate assets locally before testing.
 
 ## Phase 2 – Core Game Loop & Player Control
 1. Implement a dedicated `GameScene` with state management for Ready, Playing, LevelComplete, and LifeLost.
