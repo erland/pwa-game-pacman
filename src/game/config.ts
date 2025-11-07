@@ -93,3 +93,29 @@ export const HUD_ICONS = {
   fruit: 10,
   life: 11,
 } as const;
+
+export const GHOST_SCATTER_TARGETS = {
+  [GhostName.Blinky]: { tileX: 25, tileY: 0 },
+  [GhostName.Pinky]: { tileX: 2, tileY: 0 },
+  [GhostName.Inky]: { tileX: 27, tileY: 30 },
+  [GhostName.Clyde]: { tileX: 0, tileY: 30 },
+} as const;
+
+export interface GhostReleaseRule {
+  timerMs: number;
+  pelletThreshold: number;
+}
+
+export const GHOST_RELEASE_RULES: Record<GhostName, GhostReleaseRule> = {
+  [GhostName.Blinky]: { timerMs: 0, pelletThreshold: 0 },
+  [GhostName.Pinky]: { timerMs: 4000, pelletThreshold: 0 },
+  [GhostName.Inky]: { timerMs: 7000, pelletThreshold: 30 },
+  [GhostName.Clyde]: { timerMs: 10000, pelletThreshold: 60 },
+};
+
+export const GHOST_SPEED_MULTIPLIERS = {
+  [GhostMode.Scatter]: 1,
+  [GhostMode.Chase]: 1,
+  [GhostMode.Frightened]: 0.55,
+  [GhostMode.Eaten]: 1.6,
+} as const;
