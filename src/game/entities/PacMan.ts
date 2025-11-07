@@ -87,6 +87,10 @@ export class PacMan extends Phaser.GameObjects.Sprite {
     return { tileX, tileY };
   }
 
+  public getFacingDirection(): PacManDirection {
+    return this.currentDirection ?? this.facing;
+  }
+
   private tryApplyQueuedDirection(): void {
     if (!this.queuedDirection) {
       return;

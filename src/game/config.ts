@@ -24,12 +24,13 @@ export const AUDIO_CONFIG = {
   fruitSpawn: { key: 'sfx-fruit-spawn', url: 'audio/fruit_spawn.wav' },
 } as const;
 
+// Tile indices are sourced directly from the Tiled map layers.
 export enum TileIndex {
   Empty = 0,
-  Wall = 1,
-  GhostDoor = 2,
-  Pellet = 3,
-  PowerPellet = 4,
+  Wall = 2,
+  GhostDoor = 3,
+  Pellet = 4,
+  PowerPellet = 5,
 }
 
 export enum GhostName {
@@ -92,4 +93,30 @@ export const HUD_ICONS = {
   powerPellet: 9,
   fruit: 10,
   life: 11,
+} as const;
+
+export const GHOST_SCATTER_TARGETS = {
+  [GhostName.Blinky]: { tileX: 25, tileY: 0 },
+  [GhostName.Pinky]: { tileX: 2, tileY: 0 },
+  [GhostName.Inky]: { tileX: 27, tileY: 30 },
+  [GhostName.Clyde]: { tileX: 0, tileY: 30 },
+} as const;
+
+export interface GhostReleaseRule {
+  timerMs: number;
+  pelletThreshold: number;
+}
+
+export const GHOST_RELEASE_RULES: Record<GhostName, GhostReleaseRule> = {
+  [GhostName.Blinky]: { timerMs: 0, pelletThreshold: 0 },
+  [GhostName.Pinky]: { timerMs: 4000, pelletThreshold: 0 },
+  [GhostName.Inky]: { timerMs: 7000, pelletThreshold: 30 },
+  [GhostName.Clyde]: { timerMs: 10000, pelletThreshold: 60 },
+};
+
+export const GHOST_SPEED_MULTIPLIERS = {
+  [GhostMode.Scatter]: 1,
+  [GhostMode.Chase]: 1,
+  [GhostMode.Frightened]: 0.55,
+  [GhostMode.Eaten]: 1.6,
 } as const;
