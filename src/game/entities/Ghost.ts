@@ -191,7 +191,17 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       }
     }
 
+    const wasMoving = this.currentDirection !== null;
+
     this.advance(dtMs);
+
+    if (wasMoving && this.currentDirection === null && this.isAtTileCenter()) {
+      const fallbackDirection = this.chooseDirection(context);
+      if (fallbackDirection) {
+        this.logDebug('Recovering with fallback direction %s', fallbackDirection);
+        this.currentDirection = fallbackDirection;
+      }
+    }
 
     if (this.mode === GhostMode.Eaten && this.reachedHome()) {
       this.handleReturnedHome();
@@ -224,8 +234,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       return PacManDirection.Up;
     }
 
+    const tilePos = this.getTilePosition();
     const choices = this.getAvailableDirections();
     if (choices.length === 0) {
+      this.logDebug('No available directions from tile (%d, %d)', tilePos.x, tilePos.y);
       return this.currentDirection;
     }
 
@@ -237,8 +249,6 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     const target = this.getTargetTile(context);
     let bestDirection = choices[0];
     let bestDistance = Number.POSITIVE_INFINITY;
-
-    const tilePos = this.getTilePosition();
 
     for (const direction of choices) {
       const vec = DIRECTION_VECTORS[direction];
