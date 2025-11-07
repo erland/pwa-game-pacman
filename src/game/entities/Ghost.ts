@@ -55,6 +55,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
   private inHouse: boolean;
   private pendingRelease = false;
   private lastGlobalMode: GhostMode = GhostMode.Scatter;
+  private lastTilePosition: Phaser.Math.Vector2;
 
   private logDebug(message: string, ...args: unknown[]): void {
     // eslint-disable-next-line no-console
@@ -76,6 +77,12 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       GHOST_SCATTER_TARGETS[this.name].tileX,
       GHOST_SCATTER_TARGETS[this.name].tileY,
     );
+    const initialTileX = this.mazeLayer.worldToTileX(x, true);
+    const initialTileY = this.mazeLayer.worldToTileY(y, true);
+    this.lastTilePosition = new Phaser.Math.Vector2(
+      Number.isFinite(initialTileX) ? initialTileX : 0,
+      Number.isFinite(initialTileY) ? initialTileY : 0,
+    );
     this.inHouse = options.startInHouse;
     this.currentDirection = options.startInHouse ? null : options.startDirection;
 
@@ -95,6 +102,11 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     this.pendingRelease = false;
     this.currentDirection = inHouse ? null : direction;
     this.lastGlobalMode = GhostMode.Scatter;
+    const tileX = this.mazeLayer.worldToTileX(startPosition.x, true);
+    const tileY = this.mazeLayer.worldToTileY(startPosition.y, true);
+    if (Number.isFinite(tileX) && Number.isFinite(tileY)) {
+      this.lastTilePosition.set(tileX, tileY);
+    }
     this.updateAppearance();
   }
 
@@ -326,6 +338,21 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       return;
     }
 
+    if (!Number.isFinite(this.x) || !Number.isFinite(this.y)) {
+      this.logDebug('Position invalid before movement; recovering to last tile');
+      this.recoverToLastTile();
+      if (!Number.isFinite(this.x) || !Number.isFinite(this.y)) {
+        this.logDebug('Recovery failed; snapping to home position (%f, %f)', this.homePosition.x, this.homePosition.y);
+        this.setPosition(this.homePosition.x, this.homePosition.y);
+        const homeTileX = this.mazeLayer.worldToTileX(this.homePosition.x, true);
+        const homeTileY = this.mazeLayer.worldToTileY(this.homePosition.y, true);
+        if (Number.isFinite(homeTileX) && Number.isFinite(homeTileY)) {
+          this.lastTilePosition.set(homeTileX, homeTileY);
+        }
+        this.recoverToLastTile();
+      }
+    }
+
     const vec = DIRECTION_VECTORS[this.currentDirection];
     const speed = BASE_SPEED * GHOST_SPEED_MULTIPLIERS[this.mode];
     const distance = (speed * dtMs) / 1000;
@@ -522,12 +549,32 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
   protected getTilePosition(): Phaser.Math.Vector2 {
     const tileX = this.mazeLayer.worldToTileX(this.x, true);
     const tileY = this.mazeLayer.worldToTileY(this.y, true);
+
+    if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+      this.logDebug(
+        'Non-finite tile position from world (%f, %f); falling back to last tile (%d, %d)',
+        this.x,
+        this.y,
+        this.lastTilePosition.x,
+        this.lastTilePosition.y,
+      );
+      return this.lastTilePosition.clone();
+    }
+
+    this.lastTilePosition.set(tileX, tileY);
     return new Phaser.Math.Vector2(tileX, tileY);
   }
 
   private alignToTileCenter(): void {
     this.logDebug('Aligning to tile center near (%f, %f)', this.x, this.y);
     const { tileX, tileY } = this.getTilePosition();
+    this.x = this.mazeLayer.tileToWorldX(tileX) + TILE_SIZE / 2;
+    this.y = this.mazeLayer.tileToWorldY(tileY) + TILE_SIZE / 2;
+  }
+
+  private recoverToLastTile(): void {
+    const tileX = this.lastTilePosition.x;
+    const tileY = this.lastTilePosition.y;
     this.x = this.mazeLayer.tileToWorldX(tileX) + TILE_SIZE / 2;
     this.y = this.mazeLayer.tileToWorldY(tileY) + TILE_SIZE / 2;
   }
