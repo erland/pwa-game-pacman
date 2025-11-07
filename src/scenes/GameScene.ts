@@ -486,8 +486,16 @@ export class GameScene extends BasePlayScene {
       }
 
       if (ghost.isFrightened()) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[GameScene] Pac-Man ate ${ghost.getGhostName()} at (${ghost.x.toFixed(1)}, ${ghost.y.toFixed(1)})`,
+        );
         ghost.setEaten();
       } else {
+        // eslint-disable-next-line no-console
+        console.log(
+          `[GameScene] Pac-Man was caught by ${ghost.getGhostName()} at (${ghost.x.toFixed(1)}, ${ghost.y.toFixed(1)})`,
+        );
         this.enterState(GamePhase.LifeLost);
       }
     });

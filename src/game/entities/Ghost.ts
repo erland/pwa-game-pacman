@@ -56,6 +56,11 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
   private pendingRelease = false;
   private lastGlobalMode: GhostMode = GhostMode.Scatter;
 
+  private logDebug(message: string, ...args: unknown[]): void {
+    // eslint-disable-next-line no-console
+    console.log(`[Ghost ${this.name}] ${message}`, ...args);
+  }
+
   constructor(scene: Phaser.Scene, x: number, y: number, options: GhostOptions) {
     super(scene, x, y, 'pacman-characters', 4);
     this.name = options.name;
@@ -131,6 +136,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     this.inHouse = false;
     this.reverseDirection();
     this.updateAppearance();
+    this.logDebug('Set to eaten mode at (%f, %f)', this.x, this.y);
   }
 
   public isFrightened(): boolean {
@@ -205,6 +211,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     this.currentDirection = null;
     this.setPosition(this.homePosition.x, this.homePosition.y);
     this.updateAppearance();
+    this.logDebug('Returned home; waiting to re-enter maze');
     this.scene.time.delayedCall(1200, () => this.releaseFromHouse());
   }
 
@@ -296,6 +303,14 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     let nextY = this.y + vec.y * distance;
 
     if (this.willCollide(nextX, nextY)) {
+      this.logDebug(
+        'Blocked while moving %s from (%f, %f) towards (%f, %f)',
+        this.currentDirection,
+        this.x,
+        this.y,
+        nextX,
+        nextY,
+      );
       this.alignToTileCenter();
       this.currentDirection = null;
       return;
@@ -342,10 +357,23 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     }
 
     if (tile.index === TileIndex.GhostDoor) {
-      return !this.canPassDoor();
+      const blocked = !this.canPassDoor();
+      if (blocked) {
+        this.logDebug(
+          'Blocked by ghost door at tile (%d, %d) while in mode %s',
+          tile.x,
+          tile.y,
+          this.mode,
+        );
+      }
+      return blocked;
     }
 
-    return tile.index !== TileIndex.Empty;
+    const blocked = tile.index !== TileIndex.Empty;
+    if (blocked) {
+      this.logDebug('Blocked by tile index %d at (%d, %d)', tile.index, tile.x, tile.y);
+    }
+    return blocked;
   }
 
   private canPassDoor(): boolean {
@@ -398,6 +426,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
   }
 
   private alignToTileCenter(): void {
+    this.logDebug('Aligning to tile center near (%f, %f)', this.x, this.y);
     const { tileX, tileY } = this.getTilePosition();
     this.x = this.mazeLayer.tileToWorldX(tileX) + TILE_SIZE / 2;
     this.y = this.mazeLayer.tileToWorldY(tileY) + TILE_SIZE / 2;
