@@ -21,8 +21,6 @@ This plan describes how an LLM coding assistant will implement the Pac-Man game 
 4. Define constants/enums for tile indices, ghost names, modes, and gameplay timings in `src/game/config.ts`.
 5. Add preload logic for textures, audio, and tilemap in the Preload scene.
 
-> **Note:** Treat files under `public/` as generated artifacts, with the exception of the text-based `public/maps/pacman.json` Tiled export that serves as the canonical maze layout. Maintain editable sources (sprite projects, Tiled maps) outside the repository and regenerate assets locally before testing.
-
 ## Phase 2 – Core Game Loop & Player Control
 1. Implement a dedicated `GameScene` with state management for Ready, Playing, LevelComplete, and LifeLost.
 2. Create a `PacMan` class handling movement, buffered direction input, animation, and collision checks against tilemap layers.
