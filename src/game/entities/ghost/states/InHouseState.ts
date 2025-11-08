@@ -8,6 +8,8 @@ export class InHouseState extends GhostState {
   readonly id = GhostMode.InHouse;
 
   enter(g: Ghost): void {
+    g.setReverseAllowed(false);
+    g.setSpeedMultiplier(1);
     // Classic idle facing
     g.setCurrentDirection(PacManDirection.Up);
   }

@@ -7,6 +7,8 @@ export class ChaseState extends GhostState {
   readonly id = GhostMode.Chase;
 
   update(g: Ghost, dtMs: number, ctx: UpdateCtx): void {
+    g.setReverseAllowed(false);
+    g.setSpeedMultiplier(1);
     if (ctx.schedulerMode !== this.id) {
       g.setMode(ctx.schedulerMode, 'scheduler tick');
       return;

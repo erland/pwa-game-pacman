@@ -9,6 +9,8 @@ export class LeavingHouseState extends GhostState {
   readonly id = GhostMode.LeavingHouse;
 
   update(g: Ghost, dtMs: number, ctx: UpdateCtx): void {
+    g.setReverseAllowed(true);
+    g.setSpeedMultiplier(1);
     // Doorway center (tile)
     const pt = g.mazeLayer.worldToTileXY(g.doorRect.centerX, g.doorRect.centerY);
     const doorTile: TilePoint = { x: Math.round(pt.x), y: Math.round(pt.y) };

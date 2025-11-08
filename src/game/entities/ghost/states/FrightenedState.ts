@@ -8,6 +8,8 @@ export class FrightenedState extends GhostState {
 
   update(g: Ghost, dtMs: number, _ctx: UpdateCtx): void {
     let target: TilePoint;
+    g.setReverseAllowed(true);
+    g.setSpeedMultiplier(0.6);
 
     const remaining = g.getFrightenedTimerMs() - dtMs;
     g.setFrightenedTimerMs(remaining);

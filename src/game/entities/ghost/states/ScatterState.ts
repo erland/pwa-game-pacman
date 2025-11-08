@@ -7,6 +7,8 @@ export class ScatterState extends GhostState {
   readonly id = GhostMode.Scatter;
 
   update(g: Ghost, dtMs: number, ctx: UpdateCtx): void {
+    g.setReverseAllowed(false);
+    g.setSpeedMultiplier(1);
     if (ctx.schedulerMode !== this.id) {
       g.setMode(ctx.schedulerMode, 'scheduler tick');
       return;

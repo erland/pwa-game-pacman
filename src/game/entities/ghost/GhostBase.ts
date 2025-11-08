@@ -52,6 +52,8 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   private dbg: DebugHandles = {};
   private lastStallKey?: string;
   private lastMode?: GhostMode;
+  private reverseAllowed = false;
+  private speedMultiplier = 1;
 
   // leaving-door bookkeeping (used by states)
   private leavingDoorEntered = false;
@@ -117,6 +119,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   public setLeavingDoorEntered(v: boolean) { this.leavingDoorEntered = v; }
   public getLeavingOutDir(): PacManDirection | null { return this.leavingOutDir; }
   public setLeavingOutDir(d: PacManDirection | null) { this.leavingOutDir = d; }
+  public setReverseAllowed(v: boolean) { this.reverseAllowed = v; }
+  public isReverseAllowed(): boolean { return this.reverseAllowed; }
+  public setSpeedMultiplier(m: number) { this.speedMultiplier = m; }
+  protected getSpeedPxPerSec(): number { return this.baseSpeed * this.speedMultiplier; }
   // ---
 
   // tiny logging helpers
@@ -204,7 +210,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
   public getFrightenedTimerMs(): number { return this.frightenedTimerMs; }
   public setFrightenedTimerMs(ms: number) { this.frightenedTimerMs = ms; }
-    
+
   // --- Movement logic: shared grid stepper ---
   protected stepTowards(target: TilePoint, dtMs: number) {
     const chooseDirIfCenter = () => {
@@ -212,12 +218,8 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
       const allowed = allowedDirections(this);
       let candidates = allowed;
 
-      // No-reverse rule (allow reverse while Frightened/LeavingHouse/Eaten)
-      if (
-        this.currentDirection &&
-        this.mode !== GhostMode.Frightened &&
-        this.mode !== GhostMode.LeavingHouse
-      ) {
+      // No-reverse rule for certain states
+      if (this.currentDirection && !this.reverseAllowed) {
         const rev = opposite(this.currentDirection);
         candidates = allowed.filter((d) => d !== rev);
         if (candidates.length === 0) candidates = allowed;
@@ -325,19 +327,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     }
   }
 
-  protected getSpeedPxPerSec(): number {
-    if (this.mode === GhostMode.Frightened) return this.baseSpeed * 0.6;
-    if (this.mode === GhostMode.Eaten || this.mode === GhostMode.ReturningHome) return this.baseSpeed * 1.6;
-    return this.baseSpeed;
-  }
 
   protected alignToTileCenter() {
-    const pt = this.mazeLayer.worldToTileXY(this.x, this.y);
-    const tx = Math.floor(pt.x);
-    const ty = Math.floor(pt.y);
-    const cx = this.mazeLayer.tileToWorldX(tx) + TILE_SIZE / 2;
-    const cy = this.mazeLayer.tileToWorldY(ty) + TILE_SIZE / 2;
-    this.setPixel(cx, cy);
+    const c = currentTileCenterWorld(this);
+    this.setPixel(c.x, c.y);
   }
 
   protected setPixel(x: number, y: number) { this.x = x; this.y = y; }
