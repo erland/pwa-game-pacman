@@ -11,6 +11,7 @@ import {
   isBlockedTile, blockReason, distance2, willCollide
 } from './GhostUtils';
 import { ensureDebugDrawables, clearDebugDraw, drawGhostDebug, DebugHandles } from './GhostDebug';
+import { GhostMover } from './movement/GhostMover';
 
 // New: state machine + states
 import { StateMachine } from './states/StateMachine';
@@ -33,6 +34,7 @@ export interface GhostOptions {
 }
 
 export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNavCtx {
+  private mover!: GhostMover;
   public name: GhostName;
   protected mazeLayer: Phaser.Tilemaps.TilemapLayer;
   protected doorRect: Phaser.Geom.Rectangle;
@@ -73,6 +75,8 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
     this.setOrigin(0.5, 0.5);
     scene.add.existing(this);
+    // Movement adapter over the generic GridMover
+    this.mover = new GhostMover(this as unknown as Ghost, this.getSpeedPxPerSec());
 
     // build the state machine
     this.fsm = new StateMachine<Ghost, GhostMode>({
@@ -121,7 +125,11 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   public setLeavingOutDir(d: PacManDirection | null) { this.leavingOutDir = d; }
   public setReverseAllowed(v: boolean) { this.reverseAllowed = v; }
   public isReverseAllowed(): boolean { return this.reverseAllowed; }
-  public setSpeedMultiplier(m: number) { this.speedMultiplier = m; }
+  public setSpeedMultiplier(m: number) { 
+    this.speedMultiplier = m;
+    // keep GridMover speed in sync
+    if (this.mover) this.mover.setSpeedPxPerSec(this.getSpeedPxPerSec());
+  }
   protected getSpeedPxPerSec(): number { return this.baseSpeed * this.speedMultiplier; }
   // ---
 
@@ -213,19 +221,20 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
   // --- Movement logic: shared grid stepper ---
   protected stepTowards(target: TilePoint, dtMs: number) {
-    const chooseDirIfCenter = () => {
-      if (!atTileCenter(this)) return;
+    // Decide/queue a direction only when centered on a tile
+    if (atTileCenter(this)) {
       const allowed = allowedDirections(this);
       let candidates = allowed;
-
-      // No-reverse rule for certain states
+  
+      // Classic no-reverse rule (unless current state allows it)
       if (this.currentDirection && !this.reverseAllowed) {
         const rev = opposite(this.currentDirection);
         candidates = allowed.filter((d) => d !== rev);
-        if (candidates.length === 0) candidates = allowed;
+        if (candidates.length === 0) candidates = allowed; // fail-safe
       }
-
+  
       if (candidates.length === 0) {
+        // Keep your useful stall logging
         const h = this.getTile();
         const stallKey = `${this.name}@${h.x},${h.y}:${this.mode}`;
         if (this.logEnabled && stallKey !== this.lastStallKey) {
@@ -237,94 +246,36 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
             const ny = h.y + (v.y as number);
             reasons.push(`${dirName(d)} -> ${blockReason(this, nx, ny)}`);
           }
-          this.log(`STALL at ${h.x},${h.y} mode=${this.mode} dir=${dirName(this.currentDirection)} | neighbors: ${reasons.join(' | ')}`);
-        }
-        return;
-      }
-
-      // Pure greedy pick: state decides 'target'; base picks best neighbor toward it.
-      let bestDir = candidates[0];
-      let bestDist = Number.POSITIVE_INFINITY;
-      const here = this.getTile();
-      for (const d of candidates) {
-        const v = DIR_VECS[d];
-        const nxt = { x: here.x + (v.x as number), y: here.y + (v.y as number) };
-        const dist = distance2(nxt, target);
-        if (dist < bestDist) { bestDist = dist; bestDir = d; }
-      }
-      this.currentDirection = bestDir;
-    };
-
-    // if centered, decide first
-    chooseDirIfCenter();
-    if (!this.currentDirection) return;
-
-    const speed = this.getSpeedPxPerSec();
-    let remaining = (speed * dtMs) / 1000;
-
-    let guards = 0;
-    while (remaining > 0.0001 && guards++ < 8) {
-      chooseDirIfCenter();
-      if (!this.currentDirection) break;
-
-      const dir = this.currentDirection;
-      const v = DIR_VECS[dir];
-      const hereTile = this.getTile();
-      const center = currentTileCenterWorld(this);
-
-      const aheadTx = hereTile.x + (v.x as number);
-      const aheadTy = hereTile.y + (v.y as number);
-      const aheadBlocked = isBlockedTile(this, aheadTx, aheadTy);
-
-      let targetCenterX = center.x;
-      let targetCenterY = center.y;
-
-      if (dir === PacManDirection.Left) {
-        targetCenterX = (this.x > center.x) ? center.x : (aheadBlocked ? center.x : center.x - TILE_SIZE);
-      } else if (dir === PacManDirection.Right) {
-        targetCenterX = (this.x < center.x) ? center.x : (aheadBlocked ? center.x : center.x + TILE_SIZE);
-      } else if (dir === PacManDirection.Up) {
-        targetCenterY = (this.y > center.y) ? center.y : (aheadBlocked ? center.y : center.y - TILE_SIZE);
-      } else if (dir === PacManDirection.Down) {
-        targetCenterY = (this.y < center.y) ? center.y : (aheadBlocked ? center.y : center.y + TILE_SIZE);
-      }
-
-      const dx = (dir === PacManDirection.Left || dir === PacManDirection.Right) ? Math.abs(targetCenterX - this.x) : 0;
-      const dy = (dir === PacManDirection.Up   || dir === PacManDirection.Down)  ? Math.abs(targetCenterY - this.y) : 0;
-      const toNextCenter = dx + dy;
-
-      const step = Math.min(remaining, toNextCenter);
-
-      const nx = this.x + (v.x as number) * step;
-      const ny = this.y + (v.y as number) * step;
-      this.setPixel(nx, ny);
-      remaining -= step;
-
-      if (Math.abs((dir === PacManDirection.Left || dir === PacManDirection.Right ? targetCenterX - this.x : targetCenterY - this.y)) < 0.01) {
-        this.setPixel(
-          (dir === PacManDirection.Left || dir === PacManDirection.Right) ? targetCenterX : this.x,
-          (dir === PacManDirection.Up   || dir === PacManDirection.Down)  ? targetCenterY : this.y
-        );
-      }
-
-      if (aheadBlocked && atTileCenter(this)) {
-        this.currentDirection = null;
-      }
-    }
-
-    if (this.currentDirection) {
-      if (willCollide(this, this.currentDirection, this.x, this.y)) {
-        if (this.logEnabled) {
-          const h = this.getTile();
           this.log(
-            `COLLIDE ahead from ${h.x},${h.y} dir=${dirName(this.currentDirection)} ` +
-            `-> because ${blockReason(this, h.x, h.y)} | aligning & re-choose`
+            `STALL at ${h.x},${h.y} mode=${this.mode} dir=${dirName(this.currentDirection)} | neighbors: ${reasons.join(' | ')}`
           );
         }
-        this.alignToTileCenter();
-        this.currentDirection = null;
+      } else {
+        // Greedy pick: neighbor minimizing distance^2 to target tile
+        const here = this.getTile();
+        let bestDir = candidates[0];
+        let bestDist = Number.POSITIVE_INFINITY;
+  
+        for (const d of candidates) {
+          const v = DIR_VECS[d];
+          const nxt = { x: here.x + (v.x as number), y: here.y + (v.y as number) };
+          const dist = distance2(nxt, target);
+          if (dist < bestDist) { bestDist = dist; bestDir = d; }
+        }
+  
+        this.currentDirection = bestDir;
+        this.mover.queue(bestDir); // let GridMover apply it safely at the next center
       }
     }
+  
+    // Keep mover speed synced with current multipliers/policies
+    this.mover.setSpeedPxPerSec(this.getSpeedPxPerSec());
+  
+    // Advance using the generic mover (handles snapping & collision guards)
+    this.mover.step(dtMs);
+  
+    // Reflect actual direction (may be null if we stopped at a center)
+    this.currentDirection = this.mover.direction();
   }
 
 

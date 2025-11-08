@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { DIRS } from './GhostTypes';
 import { TILE_SIZE } from '../../config';
 import { GhostNavCtx, allowedDirections, blockReason } from './GhostUtils';
-import { PacManDirection } from '../PacMan';
+import { PacManDirection } from '../common/direction';
 import { dirName } from './GhostTypes';
 
 export type DebugHandles = {
