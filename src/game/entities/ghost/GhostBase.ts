@@ -1,7 +1,6 @@
 // src/game/entities/ghost/GhostBase.ts
 import Phaser from 'phaser';
 import { TILE_SIZE, GHOST_FRAME, GhostName } from '../../config';
-// ⬇️ decouple from PacMan.ts – use shared directions
 import { PacManDirection } from '../common/direction';
 import {
   GhostMode, TilePoint, DIRS, DIR_VECS,
@@ -12,6 +11,16 @@ import {
   isBlockedTile, blockReason, distance2, willCollide, pickLeavingDirection
 } from './GhostUtils';
 import { ensureDebugDrawables, clearDebugDraw, drawGhostDebug, DebugHandles } from './GhostDebug';
+
+// New: state machine + states
+import { StateMachine } from './states/StateMachine';
+import { UpdateCtx } from './states/Base';
+import { InHouseState } from './states/InHouseState';
+import { LeavingHouseState } from './states/LeavingHouseState';
+import { ScatterState } from './states/ScatterState';
+import { ChaseState } from './states/ChaseState';
+import { FrightenedState } from './states/FrightenedState';
+import { EatenState } from './states/EatenState';
 
 export interface GhostOptions {
   name: GhostName;
@@ -49,6 +58,9 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   private leavingDoorEntered = false;
   private leavingOutDir: PacManDirection | null = null;
 
+  // state machine
+  private fsm!: StateMachine<Ghost, GhostMode>;
+
   constructor(scene: Phaser.Scene, opts: GhostOptions) {
     super(scene, opts.startX, opts.startY, 'pacman-characters', GHOST_FRAME[opts.name]);
 
@@ -61,9 +73,19 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     this.setOrigin(0.5, 0.5);
     scene.add.existing(this);
 
+    // build the state machine
+    this.fsm = new StateMachine<Ghost, GhostMode>({
+      [GhostMode.InHouse]:        new InHouseState(),
+      [GhostMode.LeavingHouse]:   new LeavingHouseState(),
+      [GhostMode.Scatter]:        new ScatterState(),
+      [GhostMode.Chase]:          new ChaseState(),
+      [GhostMode.Frightened]:     new FrightenedState(),
+      [GhostMode.Eaten]:          new EatenState(),
+      [GhostMode.ReturningHome]:  new EatenState(), // alias
+    }, this.mode);
+
     if (this.logEnabled) {
       const t = this.getTile();
-      // eslint-disable-next-line no-console
       console.log(
         `[${this.name}] ctor: start world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y} baseSpeed=${this.baseSpeed} doorRect=(${this.doorRect.x},${this.doorRect.y},${this.doorRect.width},${this.doorRect.height})`
       );
@@ -72,18 +94,34 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     if (this.debug) this.dbg = ensureDebugDrawables(this.scene, this.dbg);
   }
 
-  // GhostNavCtx
+  // --- GhostNavCtx
   public getTile(): TilePoint {
     const pt = this.mazeLayer.worldToTileXY(this.x, this.y);
     return { x: Math.floor(pt.x), y: Math.floor(pt.y) };
   }
-  get modeCtx() { return this.mode; } // not used; compatibility
-  // end GhostNavCtx members
+  get modeCtx() { return this.mode; }
+  // --- end GhostNavCtx
+
+  // --- helpers exposed for states (minimal API)
+  public setMode(next: GhostMode, why: string) {
+    if (this.mode !== next) {
+      this.logModeTransition(this.mode, next, why);
+      this.mode = next;
+      this.lastMode = next;
+      this.fsm.set(next, this);
+    }
+  }
+  public getCurrentDirection(): PacManDirection | null { return this.currentDirection; }
+  public setCurrentDirection(d: PacManDirection | null) { this.currentDirection = d; }
+  public hasLeavingDoorEntered(): boolean { return this.leavingDoorEntered; }
+  public setLeavingDoorEntered(v: boolean) { this.leavingDoorEntered = v; }
+  public getLeavingOutDir(): PacManDirection | null { return this.leavingOutDir; }
+  public setLeavingOutDir(d: PacManDirection | null) { this.leavingOutDir = d; }
+  // ---
 
   // tiny logging helpers
   private log(msg: string) {
     if (!this.logEnabled) return;
-    // eslint-disable-next-line no-console
     console.log(`[${this.name}] ${msg}`);
   }
   private logModeTransition(from: GhostMode, to: GhostMode, why: string) {
@@ -92,13 +130,6 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     console.log(
       `[${this.name}] MODE ${from} -> ${to} (${why}) | world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y} dir=${dirName(this.currentDirection)}`
     );
-  }
-  private setMode(next: GhostMode, why: string) {
-    if (this.mode !== next) {
-      this.logModeTransition(this.mode, next, why);
-      this.mode = next;
-      this.lastMode = next;
-    }
   }
 
   // public API
@@ -152,100 +183,31 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   ) {
     if (this.frozen) { if (this.debug) clearDebugDraw(this.dbg); return; }
 
-    // mode-change trace
-    if (this.logEnabled && this.lastMode !== this.mode) {
-      this.log(`tick: mode=${this.mode}`);
-      this.lastMode = this.mode;
-    }
-
     // frightened timer
     if (this.mode === GhostMode.Frightened) {
       this.frightenedTimerMs -= dtMs;
       if (this.frightenedTimerMs <= 0) this.setMode(schedulerMode, 'frightened timeout');
-    } else if (this.mode !== GhostMode.LeavingHouse && this.mode !== GhostMode.Eaten) {
-      this.applyScheduledMode(schedulerMode);
     }
 
-    // Decide target
-    let target: TilePoint;
-    if (this.mode === GhostMode.Scatter) {
-      target = this.scatterTarget;
-    } else if (this.mode === GhostMode.Chase) {
-      target = this.getChaseTarget(pacTile, pacFacing, blinkyTile);
-    } else if (this.mode === GhostMode.Frightened) {
-      target = {
-        x: pacTile.x + Math.round((Math.random() - 0.5) * 14),
-        y: Math.round(pacTile.y + (Math.random() - 0.5) * 14),
-      };
-    } else if (this.mode === GhostMode.LeavingHouse) {
-      const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.centerY);
-      const doorTile = { x: Math.round(pt.x), y: Math.round(pt.y) };
-
-      const inDoorNow = Phaser.Geom.Rectangle.Contains(this.doorRect, this.x, this.y);
-      if (inDoorNow) this.leavingDoorEntered = true;
-
-      if (inDoorNow && this.leavingOutDir == null) {
-        this.leavingOutDir = (this.y <= this.doorRect.centerY)
-          ? PacManDirection.Down
-          : PacManDirection.Up;
-      }
-
-      const outDir = this.leavingOutDir ?? ((this.y <= this.doorRect.centerY) ? PacManDirection.Down : PacManDirection.Up);
-      const outVec = DIR_VECS[outDir];
-      const doorOutTile = { x: doorTile.x + (outVec.x as number), y: doorTile.y + (outVec.y as number) };
-      target = inDoorNow ? doorOutTile : doorTile;
-
-      if (inDoorNow && atTileCenter(this)) {
-        const allowedNow = allowedDirections(this);
-        if (allowedNow.includes(outDir)) this.currentDirection = outDir;
-      }
-
-      if (this.logEnabled && LOG_LEAVING_EVERY_TICK) {
-        const here = this.getTile();
-        const allowed = allowedDirections(this).map(d => dirName(d)).join(', ');
-        const neighborReasons = DIRS.map(d => {
-          const v = DIR_VECS[d];
-          const nx = here.x + (v.x as number);
-          const ny = here.y + (v.y as number);
-          return `${dirName(d)}:${blockReason(this, nx, ny)}`;
-        }).join(' | ');
-        const tickKey = `${here.x},${here.y}:${this.mode}:${dirName(this.currentDirection)}:${inDoorNow}:${this.leavingDoorEntered}:out=${dirName(outDir)}`;
-        if (tickKey !== this.lastTickKey) {
-          this.lastTickKey = tickKey;
-          this.log(
-            `LEAVING: world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${here.x},${here.y} ` +
-            `target=${target.x},${target.y} (door=${doorTile.x},${doorTile.y} out=${dirName(outDir)}) ` +
-            `atCenter=${atTileCenter(this)} inDoor=${inDoorNow} enteredDoor=${this.leavingDoorEntered} ` +
-            `dir=${dirName(this.currentDirection)} allowed=[${allowed}] | neighbors { ${neighborReasons} }`
-          );
-        }
-      }
-
-      if (!inDoorNow && this.leavingDoorEntered && atTileCenter(this)) {
-        this.setMode(schedulerMode, 'exited doorway after entering it');
-        this.leavingDoorEntered = false;
-        this.leavingOutDir = null;
-      }
-    } else {
-      const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.centerY);
-      target = { x: Math.round(pt.x), y: Math.round(pt.y) };
-      if (Phaser.Geom.Rectangle.Contains(this.doorRect, this.x, this.y) && atTileCenter(this)) {
-        this.setMode(GhostMode.InHouse, 'reached house center');
-        this.currentDirection = PacManDirection.Up;
-      }
+    // chase/scatter follow scheduler changes
+    if (this.mode === GhostMode.Scatter || this.mode === GhostMode.Chase) {
+      if (this.mode !== schedulerMode) this.setMode(schedulerMode, 'scheduler tick');
     }
 
-    // Step movement (unchanged stepping logic)
-    this.stepTowards(target, dtMs);
+    const ctx: UpdateCtx = { schedulerMode, pacTile, pacFacing, blinkyTile };
+
+    // delegate to FSM
+    this.fsm.update(this, dtMs, ctx);
 
     if (this.debug) {
       this.dbg = ensureDebugDrawables(this.scene, this.dbg);
-      drawGhostDebug(this.scene, { ...this, name: this.name, currentDirection: this.currentDirection }, target, this.dbg);
+      drawGhostDebug(this.scene, { ...this, name: this.name, currentDirection: this.currentDirection }, pacTile, this.dbg);
     }
 
     this.updateFrameForMode();
   }
 
+  // --- Movement logic intact (unchanged) ---
   protected stepTowards(target: TilePoint, dtMs: number) {
     const chooseDirIfCenter = () => {
       if (!atTileCenter(this)) return;
@@ -260,7 +222,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
       if (candidates.length === 0) {
         const h = this.getTile();
-        const stallKey = `${this.name}@${h.x},${h.y}:%${this.mode}`;
+        const stallKey = `${this.name}@${h.x},${h.y}:${this.mode}`;
         if (this.logEnabled && stallKey !== this.lastStallKey) {
           this.lastStallKey = stallKey;
           const reasons: string[] = [];
