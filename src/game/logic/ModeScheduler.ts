@@ -1,6 +1,6 @@
 
 import { LEVEL_TIMINGS } from '../config';
-import { GhostMode } from '../entities/Ghost';
+import { GhostMode } from '../entities/ghost';
 
 export class ModeScheduler {
   private levelIndex: number;
