@@ -164,7 +164,6 @@ export class GameScene extends BasePlayScene {
     });
 
     this.ghosts = [this.blinky, pinky, inky, clyde].filter(Boolean) as Ghost[];
-    //this.ghosts = [this.blinky].filter(Boolean) as Ghost[];
     this.ghosts.forEach(g => g?.setDepth(this.pelletLayer.depth + 1));
     
     // Initial states: keep frozen until we switch to Playing

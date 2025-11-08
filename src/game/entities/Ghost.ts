@@ -106,6 +106,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
 
   // NEW: ensure we only exit LeavingHouse after actually passing through the doorway once
   private leavingDoorEntered = false;
+  // Direction that leads OUT of the house through the door (computed from spawn vs door)
+  private leaveOutDir: PacManDirection;
+  // NEW: remember outward dir once we enter the door (don’t recompute every tick)
+  private leavingOutDir: PacManDirection | null = null;
 
   constructor(scene: Phaser.Scene, opts: GhostOptions) {
     super(scene, opts.startX, opts.startY, 'pacman-characters', GHOST_FRAME[opts.name]);
@@ -113,6 +117,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     this.scatterTarget = opts.scatterTarget;
     this.mazeLayer = opts.mazeLayer;
     this.doorRect = opts.doorRect;
+    // If we start above the door center, outward is Down; otherwise Up (works if your map flips)
+    this.leaveOutDir = (opts.startY < opts.doorRect.centerY)
+      ? PacManDirection.Down
+      : PacManDirection.Up;
     if (opts.baseSpeed) this.baseSpeed = opts.baseSpeed;
 
     this.setOrigin(0.5, 0.5);
@@ -194,6 +202,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       const t = this.getTile();
       this.log(`releaseFromHouse(): -> LeavingHouse | start world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y}`);
       this.leavingDoorEntered = false;       // reset doorway tracking
+      this.leavingOutDir = null;   // <— reset latched outward direction
       this.setMode(GhostMode.LeavingHouse, 'releaseFromHouse');
       // IMPORTANT: avoid biasing initial direction (Up blocked your only exit)
       this.currentDirection = null;
@@ -248,6 +257,16 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     return Math.abs(this.x - cx) < 0.25 && Math.abs(this.y - cy) < 0.25;
   }
 
+  /** Center of the current tile in world coordinates. */
+  private currentTileCenterWorld(): Phaser.Math.Vector2 {
+    const pt = this.mazeLayer.worldToTileXY(this.x, this.y);
+    const tx = Math.floor(pt.x);
+    const ty = Math.floor(pt.y);
+    const cx = this.mazeLayer.tileToWorldX(tx) + TILE_SIZE / 2;
+    const cy = this.mazeLayer.tileToWorldY(ty) + TILE_SIZE / 2;
+    return new Phaser.Math.Vector2(cx, cy);
+  }
+
   /** is blocked for ghosts depending on state (door closed in normal modes). */
   protected isBlockedTile(tx: number, ty: number): boolean {
     // 1) Bounds check first
@@ -297,11 +316,35 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     return dx*dx + dy*dy;
   }
 
+  // NEW: prefer vertical toward the door, else horizontal to align, else no preference
+  private pickLeavingDirection(here: TilePoint, target: TilePoint, allowed: PacManDirection[]): PacManDirection | null {
+    const dx = target.x - here.x;
+    const dy = target.y - here.y;
+
+    // prefer vertical toward target first
+    if (dy !== 0) {
+      const vert = dy < 0 ? PacManDirection.Up : PacManDirection.Down;
+      if (allowed.includes(vert)) return vert;
+    }
+    // then align horizontally with the door column
+    if (dx !== 0) {
+      const horiz = dx < 0 ? PacManDirection.Left : PacManDirection.Right;
+      if (allowed.includes(horiz)) return horiz;
+    }
+    return null;
+  }
+
   /** Override in subclasses to provide chase target. */
   protected abstract getChaseTarget(pacTile: TilePoint, pacFacing: Phaser.Math.Vector2, blinkyTile: TilePoint): TilePoint;
 
   /** Entry point called each tick from the scene. */
-  public updateGhost(dtMs: number, schedulerMode: GhostMode, pacTile: TilePoint, pacFacing: Phaser.Math.Vector2, blinkyTile: TilePoint) {
+  public updateGhost(
+    dtMs: number,
+    schedulerMode: GhostMode,
+    pacTile: TilePoint,
+    pacFacing: Phaser.Math.Vector2,
+    blinkyTile: TilePoint
+  ) {
     if (this.frozen) { if (this.debug) this.clearDebugDraw(); return; }
 
     // mode-change trace
@@ -328,16 +371,45 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     } else if (this.mode === GhostMode.Chase) {
       target = this.getChaseTarget(pacTile, pacFacing, blinkyTile);
     } else if (this.mode === GhostMode.Frightened) {
-      // Wander: pick a far tile in a pseudo-random way
-      target = { x: pacTile.x + Math.round((Math.random() - 0.5) * 14), y: Math.round(pacTile.y + (Math.random() - 0.5) * 14) };
+      target = {
+        x: pacTile.x + Math.round((Math.random() - 0.5) * 14),
+        y: Math.round(pacTile.y + (Math.random() - 0.5) * 14),
+      };
     } else if (this.mode === GhostMode.LeavingHouse) {
-      // NEW: aim at doorway CENTER tile so we actually pass through it
+      // Door center tile
       const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.centerY);
       const doorTile = { x: Math.round(pt.x), y: Math.round(pt.y) };
-      target = doorTile;
 
       const inDoorNow = Phaser.Geom.Rectangle.Contains(this.doorRect, this.x, this.y);
       if (inDoorNow) this.leavingDoorEntered = true;
+
+      // LATCH outward direction on the FIRST frame we are inside the door
+      if (inDoorNow && this.leavingOutDir == null) {
+        // Heuristic: if we start above the door center, we must go Down to exit; else Up.
+        this.leavingOutDir = (this.y <= this.doorRect.centerY)
+          ? PacManDirection.Down
+          : PacManDirection.Up;
+      }
+
+      // Compute the tile one step beyond the door in the latched outward direction
+      const outDir = this.leavingOutDir ?? (
+        // if not yet inside the door, bias toward the side we’ll likely need
+        (this.y <= this.doorRect.centerY) ? PacManDirection.Down : PacManDirection.Up
+      );
+      const outVec = DIR_VECS[outDir];
+      const doorOutTile = {
+        x: doorTile.x + (outVec.x as number),
+        y: doorTile.y + (outVec.y as number),
+      };
+
+      // Before entering: aim for door center; once inside: aim one tile beyond (keeps going out)
+      target = inDoorNow ? doorOutTile : doorTile;
+
+      // When centered inside the door, force the outward direction if legal
+      if (inDoorNow && this.atTileCenter()) {
+        const allowedNow = this.allowedDirections();
+        if (allowedNow.includes(outDir)) this.currentDirection = outDir;
+      }
 
       if (this.logEnabled && LOG_LEAVING_EVERY_TICK) {
         const here = this.getTile();
@@ -348,12 +420,15 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
           const ny = here.y + (v.y as number);
           return `${dirName(d)}:${this.blockReason(nx, ny)}`;
         }).join(' | ');
-        const tickKey = `${here.x},${here.y}:${this.mode}:${dirName(this.currentDirection)}:${inDoorNow}:${this.leavingDoorEntered}`;
+        const tickKey =
+          `${here.x},${here.y}:${this.mode}:${dirName(this.currentDirection)}:` +
+          `${inDoorNow}:${this.leavingDoorEntered}:out=${dirName(outDir)}`;
         if (tickKey !== this.lastTickKey) {
           this.lastTickKey = tickKey;
           this.log(
             `LEAVING: world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${here.x},${here.y} ` +
-            `target=${doorTile.x},${doorTile.y} atCenter=${this.atTileCenter()} inDoor=${inDoorNow} enteredDoor=${this.leavingDoorEntered} ` +
+            `target=${target.x},${target.y} (door=${doorTile.x},${doorTile.y} out=${dirName(outDir)}) ` +
+            `atCenter=${this.atTileCenter()} inDoor=${inDoorNow} enteredDoor=${this.leavingDoorEntered} ` +
             `dir=${dirName(this.currentDirection)} allowed=[${allowed}] | neighbors { ${neighborReasons} }`
           );
         }
@@ -363,6 +438,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       if (!inDoorNow && this.leavingDoorEntered && this.atTileCenter()) {
         this.setMode(schedulerMode, 'exited doorway after entering it');
         this.leavingDoorEntered = false;
+        this.leavingOutDir = null; // ready for next cycle
       }
     } else { // Eaten / ReturningHome
       const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.centerY);
@@ -383,34 +459,21 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
   }
 
   protected stepTowards(target: TilePoint, dtMs: number) {
-    // At intersections (tile center), choose next direction
-    if (this.atTileCenter()) {
+    // Choose direction when exactly centered
+    const chooseDirIfCenter = () => {
+      if (!this.atTileCenter()) return;
+  
       const allowed = this.allowedDirections();
       let candidates = allowed;
-
+  
       // Avoid reversing except in frightened — BUT allow reversing while LeavingHouse
       if (this.currentDirection && this.mode !== GhostMode.Frightened && this.mode !== GhostMode.LeavingHouse) {
         const rev = opposite(this.currentDirection);
         candidates = allowed.filter((d) => d !== rev);
         if (candidates.length === 0) candidates = allowed; // dead end, allow reverse
       }
-
-      if (candidates.length > 0) {
-        // Pick direction minimizing distance to target
-        let bestDir = candidates[0];
-        let bestDist = Number.POSITIVE_INFINITY;
-        const here = this.getTile();
-        for (const d of candidates) {
-          const v = DIR_VECS[d];
-          const nxt = { x: here.x + (v.x as number), y: here.y + (v.y as number) };
-          const dist = this.distance2(nxt, target);
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestDir = d;
-          }
-        }
-        this.currentDirection = bestDir;
-      } else {
+  
+      if (candidates.length === 0) {
         // STALL: log once per tile/mode
         const h = this.getTile();
         const stallKey = `${this.name}@${h.x},${h.y}:${this.mode}`;
@@ -425,37 +488,120 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
           }
           this.log(`STALL at ${h.x},${h.y} mode=${this.mode} dir=${dirName(this.currentDirection)} | neighbors: ${reasons.join(' | ')}`);
         }
+        return;
       }
-    }
-
-    // Move along currentDirection
+  
+      if (this.mode === GhostMode.LeavingHouse) {
+        const here = this.getTile();
+        const preferred = this.pickLeavingDirection(here, target, candidates);
+        if (preferred) {
+          this.currentDirection = preferred;
+          return;
+        }
+        // fall through to distance chooser
+      }
+  
+      // Distance-minimizing chooser
+      let bestDir = candidates[0];
+      let bestDist = Number.POSITIVE_INFINITY;
+      const here = this.getTile();
+      for (const d of candidates) {
+        const v = DIR_VECS[d];
+        const nxt = { x: here.x + (v.x as number), y: here.y + (v.y as number) };
+        const dist = this.distance2(nxt, target);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestDir = d;
+        }
+      }
+      this.currentDirection = bestDir;
+    };
+  
+    // If we start the tick on a center, decide first.
+    chooseDirIfCenter();
     if (!this.currentDirection) return;
+  
+    // Grid-aware movement: go center-to-center; don't skip intersections on large dt
     const speed = this.getSpeedPxPerSec();
-    const dist = (speed * dtMs) / 1000;
-    const vec = DIR_VECS[this.currentDirection];
-    const nextX = this.x + (vec.x as number) * dist;
-    const nextY = this.y + (vec.y as number) * dist;
-
-    // If will hit wall before leaving tile, snap to center & pick again next tick
-    if (this.willCollide(nextX, nextY)) {
-      const h = this.getTile();
-      const aheadPt = this.mazeLayer.worldToTileXY(
-        nextX + (vec.x as number) * (TILE_SIZE * 0.25),
-        nextY + (vec.y as number) * (TILE_SIZE * 0.25)
-      );
-      const ax = Math.floor(aheadPt.x), ay = Math.floor(aheadPt.y);
-      if (this.logEnabled) {
-        this.log(
-          `COLLIDE ahead from ${h.x},${h.y} dir=${dirName(this.currentDirection)} ` +
-          `-> hit ${ax},${ay} because ${this.blockReason(ax, ay)} | aligning & re-choose`
+    let remaining = (speed * dtMs) / 1000;
+  
+    // Safety guard for very slow frames
+    let guards = 0;
+    while (remaining > 0.0001 && guards++ < 8) {
+      // Reconsider turns at centers
+      chooseDirIfCenter();
+      if (!this.currentDirection) break;
+  
+      const dir = this.currentDirection;
+      const v = DIR_VECS[dir];
+      const hereTile = this.getTile();
+      const center = this.currentTileCenterWorld();
+  
+      // Check ahead tile
+      const aheadTx = hereTile.x + (v.x as number);
+      const aheadTy = hereTile.y + (v.y as number);
+      const aheadBlocked = this.isBlockedTile(aheadTx, aheadTy);
+  
+      // Decide which center we are heading to in this segment
+      let targetCenterX = center.x;
+      let targetCenterY = center.y;
+  
+      if (dir === PacManDirection.Left) {
+        targetCenterX = (this.x > center.x) ? center.x : (aheadBlocked ? center.x : center.x - TILE_SIZE);
+      } else if (dir === PacManDirection.Right) {
+        targetCenterX = (this.x < center.x) ? center.x : (aheadBlocked ? center.x : center.x + TILE_SIZE);
+      } else if (dir === PacManDirection.Up) {
+        targetCenterY = (this.y > center.y) ? center.y : (aheadBlocked ? center.y : center.y - TILE_SIZE);
+      } else if (dir === PacManDirection.Down) {
+        targetCenterY = (this.y < center.y) ? center.y : (aheadBlocked ? center.y : center.y + TILE_SIZE);
+      }
+  
+      const dx = (dir === PacManDirection.Left || dir === PacManDirection.Right) ? Math.abs(targetCenterX - this.x) : 0;
+      const dy = (dir === PacManDirection.Up   || dir === PacManDirection.Down)  ? Math.abs(targetCenterY - this.y) : 0;
+      const toNextCenter = dx + dy; // one axis is zero
+  
+      const step = Math.min(remaining, toNextCenter);
+  
+      // Move
+      const nx = this.x + (v.x as number) * step;
+      const ny = this.y + (v.y as number) * step;
+      this.setPixel(nx, ny);
+      remaining -= step;
+  
+      // Snap if we land essentially on the planned center
+      if (Math.abs((dir === PacManDirection.Left || dir === PacManDirection.Right ? targetCenterX - this.x : targetCenterY - this.y)) < 0.01) {
+        this.setPixel(
+          (dir === PacManDirection.Left || dir === PacManDirection.Right) ? targetCenterX : this.x,
+          (dir === PacManDirection.Up   || dir === PacManDirection.Down)  ? targetCenterY : this.y
         );
       }
-      this.alignToTileCenter();
-      this.currentDirection = null;
-      return;
+  
+      // If the next tile was blocked and we reached the current center, clear direction so we'll re-choose
+      if (aheadBlocked && this.atTileCenter()) {
+        this.currentDirection = null;
+      }
     }
-
-    this.setPixel(nextX, nextY);
+  
+    // Paranoia: if we ended up facing a wall due to jitter, snap & re-choose next tick
+    if (this.currentDirection) {
+      const vec = DIR_VECS[this.currentDirection];
+      const aheadPt = this.mazeLayer.worldToTileXY(
+        this.x + (vec.x as number) * (TILE_SIZE * 0.25),
+        this.y + (vec.y as number) * (TILE_SIZE * 0.25)
+      );
+      const ax = Math.floor(aheadPt.x), ay = Math.floor(aheadPt.y);
+      if (this.isBlockedTile(ax, ay)) {
+        if (this.logEnabled) {
+          const h = this.getTile();
+          this.log(
+            `COLLIDE ahead from ${h.x},${h.y} dir=${dirName(this.currentDirection)} ` +
+            `-> hit ${ax},${ay} because ${this.blockReason(ax, ay)} | aligning & re-choose`
+          );
+        }
+        this.alignToTileCenter();
+        this.currentDirection = null;
+      }
+    }
   }
 
   protected getSpeedPxPerSec(): number {
