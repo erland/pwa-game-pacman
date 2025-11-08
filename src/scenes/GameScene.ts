@@ -5,6 +5,7 @@ import { PacMan, PacManDirection } from '../game/entities/PacMan';
 import { BlinkyGhost, PinkyGhost, InkyGhost, ClydeGhost, GhostMode, Ghost } from '../game/entities/Ghost';
 import { ModeScheduler } from '../game/logic/ModeScheduler';
 import { TilePoint } from '../game/entities/ghost/GhostTypes';
+import { GhostDebugHUD } from '../game/debug/GhostDebugHUD'; // ⬅️ NEW
 
 enum GamePhase {
   Ready = 'ready',
@@ -55,6 +56,9 @@ export class GameScene extends BasePlayScene {
   // DEBUG MODE OVERRIDE: force Scatter/Chase via hotkeys
   private modeOverride: GhostMode | null = null;
 
+  // ⬅️ NEW: Debug HUD instance
+  private ghostHud?: GhostDebugHUD;
+
   constructor() {
     super({ hz: 60, maxCatchUp: 5 }, 'Game');
   }
@@ -80,7 +84,7 @@ export class GameScene extends BasePlayScene {
     this.pacman = new PacMan(this, startX, startY, this.mazeLayer);
     this.pacman.reset(startX, startY, PacManDirection.Left);
 
-    // NEW: initialize previous tile to the actual starting tile (avoids a bogus first facing)
+    // initialize previous tile to the actual starting tile (avoids a bogus first facing)
     {
       const t = this.pacman.getTilePosition();
       this.pacPrevTile.set(t.tileX, t.tileY);
@@ -96,6 +100,9 @@ export class GameScene extends BasePlayScene {
     this.createStateText();
     this.configureInput();
 
+    // ⬅️ NEW: create the Debug HUD and handle resize
+    this.createDebugHud();
+
     // DEBUG MODE OVERRIDE: enable Scatter/Chase hotkeys (C/S/M) and window.forceMode(...)
     this.enableDebugModeHotkeys();
 
@@ -108,24 +115,28 @@ export class GameScene extends BasePlayScene {
   }
 
   protected tick(dtMs: number): void {
-  if (this.state === GamePhase.Playing) {
-    this.pacman.update(dtMs);
+    if (this.state === GamePhase.Playing) {
+      this.pacman.update(dtMs);
 
-    const scheduled = this.modeScheduler.tick(dtMs);
-    const schedulerMode = this.modeOverride ?? scheduled;
+      const scheduled = this.modeScheduler.tick(dtMs);
+      const schedulerMode = this.modeOverride ?? scheduled;
 
-    // ✅ Convert Pac-Man's tile to {x,y} for ghost AI
-    const pacTile: TilePoint = this.getPacTilePoint();
-    const pacFacing = this.getPacmanFacingVector();
+      // Convert Pac-Man's tile to {x,y} for ghost AI
+      const pacTile: TilePoint = this.getPacTilePoint();
+      const pacFacing = this.getPacmanFacingVector();
+      const blinkyTile = this.blinky ? this.blinky.getTile() : pacTile;
 
-    const blinkyTile = this.blinky ? this.blinky.getTile() : pacTile;
+      // ⬅️ NEW: update the HUD each tick
+      this.ghostHud?.update(this.ghosts, schedulerMode);
 
-    this.ghosts.forEach(g => g.updateGhost(dtMs, schedulerMode, pacTile, pacFacing, blinkyTile));
+      this.ghosts.forEach(g =>
+        g.updateGhost(dtMs, schedulerMode, pacTile, pacFacing, blinkyTile)
+      );
 
-    this.handlePacmanGhostCollisions();
-    this.handlePelletCollision();
+      this.handlePacmanGhostCollisions();
+      this.handlePelletCollision();
+    }
   }
-}
 
   protected frame(_deltaMs: number): void {
     // no-op for now; reserved for future VFX
@@ -137,7 +148,11 @@ export class GameScene extends BasePlayScene {
     const inkySpawn = this.getSpawnPoint('inky');
     const clydeSpawn = this.getSpawnPoint('clyde');
 
-    const toCenter = (o: any) => new Phaser.Math.Vector2(o.x + (o.width ?? TILE_SIZE) / 2, o.y + (o.height ?? TILE_SIZE) / 2);
+    const toCenter = (o: any) =>
+      new Phaser.Math.Vector2(
+        o.x + (o.width ?? TILE_SIZE) / 2,
+        o.y + (o.height ?? TILE_SIZE) / 2
+      );
 
     const blinkyPos = toCenter(blinkySpawn);
     const pinkyPos = toCenter(pinkySpawn);
@@ -158,33 +173,37 @@ export class GameScene extends BasePlayScene {
       scatterTarget: corners[GhostName.Blinky],
       mazeLayer: this.mazeLayer,
       doorRect: this.ghostDoorRect,
-      startX: blinkyPos.x, startY: blinkyPos.y,
+      startX: blinkyPos.x,
+      startY: blinkyPos.y,
     });
     const pinky = new PinkyGhost(this, {
       name: GhostName.Pinky,
       scatterTarget: corners[GhostName.Pinky],
       mazeLayer: this.mazeLayer,
       doorRect: this.ghostDoorRect,
-      startX: pinkyPos.x, startY: pinkyPos.y,
+      startX: pinkyPos.x,
+      startY: pinkyPos.y,
     });
     const inky = new InkyGhost(this, {
       name: GhostName.Inky,
       scatterTarget: corners[GhostName.Inky],
       mazeLayer: this.mazeLayer,
       doorRect: this.ghostDoorRect,
-      startX: inkyPos.x, startY: inkyPos.y,
+      startX: inkyPos.x,
+      startY: inkyPos.y,
     });
     const clyde = new ClydeGhost(this, {
       name: GhostName.Clyde,
       scatterTarget: corners[GhostName.Clyde],
       mazeLayer: this.mazeLayer,
       doorRect: this.ghostDoorRect,
-      startX: clydePos.x, startY: clydePos.y,
+      startX: clydePos.x,
+      startY: clydePos.y,
     });
 
     this.ghosts = [this.blinky, pinky, inky, clyde].filter(Boolean) as Ghost[];
     this.ghosts.forEach(g => g?.setDepth(this.pelletLayer.depth + 1));
-    
+
     // Initial states: keep frozen until we switch to Playing
     this.blinky!.setFrozen(true);
     pinky.setFrozen(true);
@@ -192,7 +211,7 @@ export class GameScene extends BasePlayScene {
     clyde.setFrozen(true);
 
     // Schedule house releases (they may switch modes while frozen; we unfreeze in Playing)
-    this.time.delayedCall(0,    () => this.blinky!.releaseFromHouse());
+    this.time.delayedCall(0, () => this.blinky!.releaseFromHouse());
     this.time.delayedCall(2000, () => pinky.releaseFromHouse());
     this.time.delayedCall(4000, () => inky.releaseFromHouse());
     this.time.delayedCall(6000, () => clyde.releaseFromHouse());
@@ -253,6 +272,14 @@ export class GameScene extends BasePlayScene {
     });
   }
 
+  // ⬅️ NEW: all HUD wiring lives here (easy to delete later)
+  private createDebugHud(): void {
+    this.ghostHud = new GhostDebugHUD(this, { width: 220, margin: 8, header: 'Ghosts' });
+    this.scale.on('resize', (size: Phaser.Structs.Size) => {
+      this.ghostHud?.layout(size.width, size.height);
+    });
+  }
+
   // DEBUG MODE OVERRIDE: all debug key wiring lives here (easy to delete later)
   private enableDebugModeHotkeys(): void {
     if (!this.input.keyboard) return;
@@ -264,19 +291,26 @@ export class GameScene extends BasePlayScene {
       clear: Phaser.Input.Keyboard.KeyCodes.N, // optional: clear override (None)
     }) as Record<string, Phaser.Input.Keyboard.Key>;
 
-    keys.chase.on('down',   () => { this.modeOverride = GhostMode.Chase;   console.log('[ModeOverride] Chase'); });
-    keys.scatter.on('down', () => { this.modeOverride = GhostMode.Scatter; console.log('[ModeOverride] Scatter'); });
-    keys.toggle.on('down',  () => {
+    keys.chase.on('down', () => {
+      this.modeOverride = GhostMode.Chase;
+      console.log('[ModeOverride] Chase');
+    });
+    keys.scatter.on('down', () => {
+      this.modeOverride = GhostMode.Scatter;
+      console.log('[ModeOverride] Scatter');
+    });
+    keys.toggle.on('down', () => {
       this.modeOverride = this.modeOverride === GhostMode.Chase ? GhostMode.Scatter : GhostMode.Chase;
       console.log('[ModeOverride] Toggled to', this.modeOverride);
     });
-    keys.clear.on('down',   () => { this.modeOverride = null; console.log('[ModeOverride] Cleared (scheduler in control)'); });
+    keys.clear.on('down', () => {
+      this.modeOverride = null;
+      console.log('[ModeOverride] Cleared (scheduler in control)');
+    });
 
     // optional: devtools helper
     (window as any).forceMode = (m: 'scatter' | 'chase' | null) => {
-      this.modeOverride = m === 'scatter' ? GhostMode.Scatter
-        : m === 'chase' ? GhostMode.Chase
-        : null;
+      this.modeOverride = m === 'scatter' ? GhostMode.Scatter : m === 'chase' ? GhostMode.Chase : null;
       console.log('[ModeOverride] forceMode =>', this.modeOverride);
     };
   }
@@ -294,7 +328,6 @@ export class GameScene extends BasePlayScene {
         this.pacman.setFrozen(true);
         this.ghosts.forEach(g => g.setFrozen(true));
         this.pacman.reset(this.pacmanSpawnPosition.x, this.pacmanSpawnPosition.y, PacManDirection.Left);
-        // keep stateText visible while ready
         this.stateText.setText('READY!');
         this.stateTimer = this.time.delayedCall(1500, () => this.enterState(GamePhase.Playing));
         break;
@@ -303,7 +336,7 @@ export class GameScene extends BasePlayScene {
         // UNFREEZE EVERYTHING + ensure release if still in-house
         this.pacman.setFrozen(false);
         this.ghosts.forEach(g => g.setFrozen(false));
-        this.ghosts.forEach(g => { if (g.isInHouse()) g.releaseFromHouse(); }); // safety
+        this.ghosts.forEach(g => { if (g.isInHouse()) g.releaseFromHouse(); });
         this.stateText.setText('');
         this.pacman.queueDirection(PacManDirection.Left);
         break;
@@ -359,13 +392,10 @@ export class GameScene extends BasePlayScene {
     for (const g of this.ghosts) {
       const gt = g.getTile();
       if (gt.x === pac.tileX && gt.y === pac.tileY) {
-        // Collision
         const mode = g.getMode();
         if (mode === GhostMode.Frightened) {
           g.setEaten();
-          // Scoring handled in Phase 4; for now just state change
         } else if (mode !== GhostMode.Eaten) {
-          // Pac-Man dies -> LifeLost state (Phase 2/4)
           this.enterState(GamePhase.LifeLost);
         }
       }
