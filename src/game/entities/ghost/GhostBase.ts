@@ -162,9 +162,20 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   }
 
   public frighten(durationSec: number) {
-    if (this.mode === GhostMode.Eaten || this.mode === GhostMode.ReturningHome) return;
+    // Do NOT frighten in-pen, leaving, or when already eyes
+    if (
+      this.mode === GhostMode.InHouse ||
+      this.mode === GhostMode.LeavingHouse ||
+      this.mode === GhostMode.Eaten ||
+      this.mode === GhostMode.ReturningHome
+    ) {
+      return;
+    }
+  
     this.setMode(GhostMode.Frightened, `frighten(${durationSec}s)`);
     this.frightenedTimerMs = durationSec * 1000;
+  
+    // Immediate reverse on entry (classic behavior)
     if (this.currentDirection) this.currentDirection = opposite(this.currentDirection);
   }
 

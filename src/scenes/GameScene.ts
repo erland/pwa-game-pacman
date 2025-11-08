@@ -374,10 +374,18 @@ export class GameScene extends BasePlayScene {
       this.score += 10;
     } else {
       this.score += 50;
-      // Trigger frightened mode for all ghosts per level timing
+      // Trigger frightened timer globally
       const seconds = this.modeScheduler.frightenedSeconds(this.level);
       this.modeScheduler.startFrightenedOverride(seconds);
-      this.ghosts.forEach(g => g.frighten(seconds));
+    
+      // Only frighten ghosts that are roaming (Scatter/Chase/Frightened).
+      this.ghosts.forEach(g => {
+        const m = g.getMode();
+        if (m === GhostMode.Scatter || m === GhostMode.Chase || m === GhostMode.Frightened) {
+          g.frighten(seconds);
+        }
+        // NOTE: Skip InHouse, LeavingHouse, Eaten/ReturningHome
+      });
     }
 
     this.updateScoreText();
