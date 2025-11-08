@@ -15,8 +15,11 @@ export enum GhostMode {
 
 export type TilePoint = { x: number; y: number };
 
-// ---- DEBUG -----------------------------------------------------------------
-const DEBUG_GHOSTS = false; // <— set false to hide overlay/logs when done
+// ---- DEBUG / LOGGING -------------------------------------------------------
+const DEBUG_GHOSTS = false;        // overlay + on-canvas helpers
+const LOG_GHOSTS = false;           // console tracing (independent of overlay)
+const LOG_LEAVING_EVERY_TICK = false; // extra detail while in LeavingHouse
+
 const C = {
   door: 0xff66cc,
   here: 0x00ffff,
@@ -92,9 +95,17 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
 
   // --- debug overlay state
   private debug = DEBUG_GHOSTS;
+  private logEnabled = LOG_GHOSTS;
   private dbgGfx?: Phaser.GameObjects.Graphics;
   private dbgText?: Phaser.GameObjects.Text;
   private lastStallKey?: string;
+
+  // small dedup for per-tick logs
+  private lastTickKey?: string;
+  private lastMode?: GhostMode;
+
+  // NEW: ensure we only exit LeavingHouse after actually passing through the doorway once
+  private leavingDoorEntered = false;
 
   constructor(scene: Phaser.Scene, opts: GhostOptions) {
     super(scene, opts.startX, opts.startY, 'pacman-characters', GHOST_FRAME[opts.name]);
@@ -107,8 +118,39 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     this.setOrigin(0.5, 0.5);
     scene.add.existing(this);
 
+    if (this.logEnabled) {
+      const t = this.getTile();
+      // eslint-disable-next-line no-console
+      console.log(
+        `[${this.name}] ctor: start world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y} baseSpeed=${this.baseSpeed} doorRect=(${this.doorRect.x},${this.doorRect.y},${this.doorRect.width},${this.doorRect.height})`
+      );
+    }
+
     if (this.debug) this.ensureDebugDrawables();
   }
+
+  // ---- tiny logging helpers -------------------------------------------------
+  private log(msg: string) {
+    if (!this.logEnabled) return;
+    // eslint-disable-next-line no-console
+    console.log(`[${this.name}] ${msg}`);
+  }
+  private logModeTransition(from: GhostMode, to: GhostMode, why: string) {
+    if (!this.logEnabled) return;
+    const t = this.getTile();
+    // eslint-disable-next-line no-console
+    console.log(
+      `[${this.name}] MODE ${from} -> ${to} (${why}) | world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y} dir=${dirName(this.currentDirection)}`
+    );
+  }
+  private setMode(next: GhostMode, why: string) {
+    if (this.mode !== next) {
+      this.logModeTransition(this.mode, next, why);
+      this.mode = next;
+      this.lastMode = next;
+    }
+  }
+  // --------------------------------------------------------------------------
 
   // --- public control for overlay
   public setDebug(on: boolean) {
@@ -149,35 +191,40 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
 
   public releaseFromHouse(): void {
     if (this.mode === GhostMode.InHouse) {
-      this.mode = GhostMode.LeavingHouse;
-      // Ensure initial direction upwards towards the door
-      this.currentDirection = PacManDirection.Up;
+      const t = this.getTile();
+      this.log(`releaseFromHouse(): -> LeavingHouse | start world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y}`);
+      this.leavingDoorEntered = false;       // reset doorway tracking
+      this.setMode(GhostMode.LeavingHouse, 'releaseFromHouse');
+      // IMPORTANT: avoid biasing initial direction (Up blocked your only exit)
+      this.currentDirection = null;
     }
   }
 
   /** Called by scheduler to update global mode (scatter/chase) when not in special states. */
   public applyScheduledMode(mode: GhostMode) {
     if (this.mode === GhostMode.Scatter || this.mode === GhostMode.Chase) {
-      this.mode = mode;
+      if (this.mode !== mode) this.setMode(mode, 'scheduler tick');
     }
   }
 
   public frighten(durationSec: number) {
     // If already eaten/returning home, ignore.
     if (this.mode === GhostMode.Eaten || this.mode === GhostMode.ReturningHome) return;
-    this.mode = GhostMode.Frightened;
+    this.setMode(GhostMode.Frightened, `frighten(${durationSec}s)`);
     this.frightenedTimerMs = durationSec * 1000;
     // Reverse immediately on frighten for that classic flip
     if (this.currentDirection) {
       this.currentDirection = opposite(this.currentDirection);
+      this.log(`frighten: reverse to ${dirName(this.currentDirection)}`);
     }
   }
 
   public setEaten(): void {
-    this.mode = GhostMode.Eaten;
+    this.setMode(GhostMode.Eaten, 'eaten by Pac-Man');
     // Run fast back to door
     if (this.currentDirection) {
       this.currentDirection = opposite(this.currentDirection);
+      this.log(`eaten: reverse to ${dirName(this.currentDirection)}`);
     }
   }
 
@@ -257,12 +304,17 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
   public updateGhost(dtMs: number, schedulerMode: GhostMode, pacTile: TilePoint, pacFacing: Phaser.Math.Vector2, blinkyTile: TilePoint) {
     if (this.frozen) { if (this.debug) this.clearDebugDraw(); return; }
 
+    // mode-change trace
+    if (this.logEnabled && this.lastMode !== this.mode) {
+      this.log(`tick: mode=${this.mode}`);
+      this.lastMode = this.mode;
+    }
+
     // Handle frightened timer
     if (this.mode === GhostMode.Frightened) {
       this.frightenedTimerMs -= dtMs;
       if (this.frightenedTimerMs <= 0) {
-        // Return to scheduled mode
-        this.mode = schedulerMode;
+        this.setMode(schedulerMode, 'frightened timeout');
       }
     } else if (this.mode !== GhostMode.LeavingHouse && this.mode !== GhostMode.Eaten) {
       // Track scheduler unless in special states
@@ -277,21 +329,46 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       target = this.getChaseTarget(pacTile, pacFacing, blinkyTile);
     } else if (this.mode === GhostMode.Frightened) {
       // Wander: pick a far tile in a pseudo-random way
-      target = { x: pacTile.x + Math.round((Math.random() - 0.5) * 14), y: pacTile.y + Math.round((Math.random() - 0.5) * 14) };
+      target = { x: pacTile.x + Math.round((Math.random() - 0.5) * 14), y: Math.round(pacTile.y + (Math.random() - 0.5) * 14) };
     } else if (this.mode === GhostMode.LeavingHouse) {
-      // Aim at the tile just above the door (use layer conversion for safety)
-      const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.y - 1);
-      const doorTile = { x: Math.round(pt.x), y: Math.floor(pt.y) };
+      // NEW: aim at doorway CENTER tile so we actually pass through it
+      const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.centerY);
+      const doorTile = { x: Math.round(pt.x), y: Math.round(pt.y) };
       target = doorTile;
-      // If already outside, move into scheduled
-      if (!Phaser.Geom.Rectangle.Contains(this.doorRect, this.x, this.y) && this.atTileCenter()) {
-        this.mode = schedulerMode;
+
+      const inDoorNow = Phaser.Geom.Rectangle.Contains(this.doorRect, this.x, this.y);
+      if (inDoorNow) this.leavingDoorEntered = true;
+
+      if (this.logEnabled && LOG_LEAVING_EVERY_TICK) {
+        const here = this.getTile();
+        const allowed = this.allowedDirections().map(d => dirName(d)).join(', ');
+        const neighborReasons = DIRS.map(d => {
+          const v = DIR_VECS[d];
+          const nx = here.x + (v.x as number);
+          const ny = here.y + (v.y as number);
+          return `${dirName(d)}:${this.blockReason(nx, ny)}`;
+        }).join(' | ');
+        const tickKey = `${here.x},${here.y}:${this.mode}:${dirName(this.currentDirection)}:${inDoorNow}:${this.leavingDoorEntered}`;
+        if (tickKey !== this.lastTickKey) {
+          this.lastTickKey = tickKey;
+          this.log(
+            `LEAVING: world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${here.x},${here.y} ` +
+            `target=${doorTile.x},${doorTile.y} atCenter=${this.atTileCenter()} inDoor=${inDoorNow} enteredDoor=${this.leavingDoorEntered} ` +
+            `dir=${dirName(this.currentDirection)} allowed=[${allowed}] | neighbors { ${neighborReasons} }`
+          );
+        }
+      }
+
+      // Only finish leaving AFTER we've actually been inside the doorRect once
+      if (!inDoorNow && this.leavingDoorEntered && this.atTileCenter()) {
+        this.setMode(schedulerMode, 'exited doorway after entering it');
+        this.leavingDoorEntered = false;
       }
     } else { // Eaten / ReturningHome
       const pt = this.mazeLayer.worldToTileXY(this.doorRect.centerX, this.doorRect.centerY);
       target = { x: Math.round(pt.x), y: Math.round(pt.y) };
       if (Phaser.Geom.Rectangle.Contains(this.doorRect, this.x, this.y) && this.atTileCenter()) {
-        this.mode = GhostMode.InHouse;
+        this.setMode(GhostMode.InHouse, 'reached house center');
         this.currentDirection = PacManDirection.Up;
       }
     }
@@ -311,8 +388,8 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       const allowed = this.allowedDirections();
       let candidates = allowed;
 
-      // Avoid reversing except in frightened
-      if (this.currentDirection && this.mode !== GhostMode.Frightened) {
+      // Avoid reversing except in frightened — BUT allow reversing while LeavingHouse
+      if (this.currentDirection && this.mode !== GhostMode.Frightened && this.mode !== GhostMode.LeavingHouse) {
         const rev = opposite(this.currentDirection);
         candidates = allowed.filter((d) => d !== rev);
         if (candidates.length === 0) candidates = allowed; // dead end, allow reverse
@@ -337,7 +414,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
         // STALL: log once per tile/mode
         const h = this.getTile();
         const stallKey = `${this.name}@${h.x},${h.y}:${this.mode}`;
-        if (this.debug && stallKey !== this.lastStallKey) {
+        if (this.logEnabled && stallKey !== this.lastStallKey) {
           this.lastStallKey = stallKey;
           const reasons: string[] = [];
           for (const d of DIRS) {
@@ -346,8 +423,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
             const ny = h.y + (v.y as number);
             reasons.push(`${dirName(d)} -> ${this.blockReason(nx, ny)}`);
           }
-          // eslint-disable-next-line no-console
-          console.log(`[${this.name}] STALL at ${h.x},${h.y} mode=${this.mode} dir=${dirName(this.currentDirection)} | neighbors: ${reasons.join(' | ')}`);
+          this.log(`STALL at ${h.x},${h.y} mode=${this.mode} dir=${dirName(this.currentDirection)} | neighbors: ${reasons.join(' | ')}`);
         }
       }
     }
@@ -362,10 +438,17 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
 
     // If will hit wall before leaving tile, snap to center & pick again next tick
     if (this.willCollide(nextX, nextY)) {
-      if (this.debug) {
-        const h = this.getTile();
-        // eslint-disable-next-line no-console
-        console.log(`[${this.name}] COLLIDE ahead from ${h.x},${h.y} dir=${dirName(this.currentDirection)} -> aligning & re-choosing`);
+      const h = this.getTile();
+      const aheadPt = this.mazeLayer.worldToTileXY(
+        nextX + (vec.x as number) * (TILE_SIZE * 0.25),
+        nextY + (vec.y as number) * (TILE_SIZE * 0.25)
+      );
+      const ax = Math.floor(aheadPt.x), ay = Math.floor(aheadPt.y);
+      if (this.logEnabled) {
+        this.log(
+          `COLLIDE ahead from ${h.x},${h.y} dir=${dirName(this.currentDirection)} ` +
+          `-> hit ${ax},${ay} because ${this.blockReason(ax, ay)} | aligning & re-choose`
+        );
       }
       this.alignToTileCenter();
       this.currentDirection = null;
@@ -466,7 +549,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     // allowed rays
     const allowed = this.allowedDirections();
     this.dbgGfx.lineStyle(2, C.allowed, 0.9);
-    for (const d of allowed) {
+    for (const d of DIRS) {
       const v = DIR_VECS[d];
       const ax = c.x + (v.x as number) * (TILE_SIZE * 0.5);
       const ay = c.y + (v.y as number) * (TILE_SIZE * 0.5);
@@ -481,7 +564,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
       const reason = this.blockReason(n.x, n.y);
       const open = reason.startsWith('open') || reason.endsWith('pass');
       this.dbgGfx.lineStyle(2, open ? C.open : C.blocked, 1).strokeRectShape(rect);
-      this.dbgGfx.fillStyle(0x000000, 0.6).fillRect(rect.x, rect.y - 10, rect.width, 10);
+      this.dbgGfx.fillStyle(0x000000, 0.6).fillRect(rect.x - 1, rect.y - 10, rect.width + 2, 10);
       this.dbgGfx.lineStyle(0, 0, 0).fillStyle(0xffffff, 1);
       this.dbgText.setText(
         `${this.name} ${this.mode}\n` +
@@ -505,7 +588,6 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite {
     }
 
     // cleanup transient texts from previous frame
-    // (remove all with name 'ghostDbgTmp' created in this frame)
     this.scene.children.list
       .filter(obj => obj.name === 'ghostDbgTmp')
       .forEach(obj => obj.destroy());
@@ -527,7 +609,7 @@ export class PinkyGhost extends Ghost {
 
 export class InkyGhost extends Ghost {
   protected getChaseTarget(pacTile: TilePoint, pacFacing: Phaser.Math.Vector2, blinkyTile: TilePoint): TilePoint {
-    const ahead = { x: pacTile.x + pacFacing.x * 2, y: pacTile.y + pacFacing.y * 2 };
+    const ahead = { x: pacTile.x + pacFacing.x * 2, y: pacTile.y + (pacFacing.y as number) * 2 };
     const vx = ahead.x - blinkyTile.x;
     const vy = ahead.y - blinkyTile.y;
     return { x: blinkyTile.x + vx * 2, y: blinkyTile.y + vy * 2 };
