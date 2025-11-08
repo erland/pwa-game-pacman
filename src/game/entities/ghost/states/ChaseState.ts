@@ -7,6 +7,10 @@ export class ChaseState extends GhostState {
   readonly id = GhostMode.Chase;
 
   update(g: Ghost, dtMs: number, ctx: UpdateCtx): void {
+    if (ctx.schedulerMode !== this.id) {
+      g.setMode(ctx.schedulerMode, 'scheduler tick');
+      return;
+    }
     // Obey the global scheduler (keeps your current behavior)
     if (ctx.schedulerMode !== GhostMode.Chase) {
       g.setMode(ctx.schedulerMode, 'scheduler tick');

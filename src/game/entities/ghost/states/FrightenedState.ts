@@ -9,6 +9,13 @@ export class FrightenedState extends GhostState {
   update(g: Ghost, dtMs: number, _ctx: UpdateCtx): void {
     let target: TilePoint;
 
+    const remaining = g.getFrightenedTimerMs() - dtMs;
+    g.setFrightenedTimerMs(remaining);
+    if (remaining <= 0) {
+      g.setMode(_ctx.schedulerMode, 'frightened timeout');
+      return;
+    }
+
     if (this.atCenter(g)) {
       // Choose a random legal direction when centered on a tile.
       const allowed = this.allowed(g);

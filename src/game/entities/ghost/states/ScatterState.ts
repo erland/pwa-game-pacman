@@ -7,6 +7,11 @@ export class ScatterState extends GhostState {
   readonly id = GhostMode.Scatter;
 
   update(g: Ghost, dtMs: number, ctx: UpdateCtx): void {
+    if (ctx.schedulerMode !== this.id) {
+      g.setMode(ctx.schedulerMode, 'scheduler tick');
+      return;
+    }
+    
     // Obey the global scheduler (keeps your current behavior)
     if (ctx.schedulerMode !== GhostMode.Scatter) {
       g.setMode(ctx.schedulerMode, 'scheduler tick');

@@ -189,17 +189,6 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   ) {
     if (this.frozen) { if (this.debug) clearDebugDraw(this.dbg); return; }
 
-    // frightened timer (can be moved into FrightenedState if you want base to be 100% mode-agnostic)
-    if (this.mode === GhostMode.Frightened) {
-      this.frightenedTimerMs -= dtMs;
-      if (this.frightenedTimerMs <= 0) this.setMode(schedulerMode, 'frightened timeout');
-    }
-
-    // Follow scheduler when in Scatter/Chase
-    if (this.mode === GhostMode.Scatter || this.mode === GhostMode.Chase) {
-      if (this.mode !== schedulerMode) this.setMode(schedulerMode, 'scheduler tick');
-    }
-
     const ctx: UpdateCtx = { schedulerMode, pacTile, pacFacing, blinkyTile };
 
     // delegate to FSM
@@ -213,6 +202,9 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     this.updateFrameForMode();
   }
 
+  public getFrightenedTimerMs(): number { return this.frightenedTimerMs; }
+  public setFrightenedTimerMs(ms: number) { this.frightenedTimerMs = ms; }
+    
   // --- Movement logic: shared grid stepper ---
   protected stepTowards(target: TilePoint, dtMs: number) {
     const chooseDirIfCenter = () => {
