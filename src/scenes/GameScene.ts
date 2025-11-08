@@ -4,6 +4,7 @@ import { MAP_CONFIG, TILE_SIZE, GhostName } from '../game/config';
 import { PacMan, PacManDirection } from '../game/entities/PacMan';
 import { BlinkyGhost, PinkyGhost, InkyGhost, ClydeGhost, GhostMode, Ghost } from '../game/entities/Ghost';
 import { ModeScheduler } from '../game/logic/ModeScheduler';
+import { TilePoint } from '../game/entities/ghost/GhostTypes';
 
 enum GamePhase {
   Ready = 'ready',
@@ -51,6 +52,9 @@ export class GameScene extends BasePlayScene {
   private stateText!: Phaser.GameObjects.Text;
   private pointerStart?: Phaser.Math.Vector2;
 
+  // DEBUG MODE OVERRIDE: force Scatter/Chase via hotkeys
+  private modeOverride: GhostMode | null = null;
+
   constructor() {
     super({ hz: 60, maxCatchUp: 5 }, 'Game');
   }
@@ -92,21 +96,36 @@ export class GameScene extends BasePlayScene {
     this.createStateText();
     this.configureInput();
 
+    // DEBUG MODE OVERRIDE: enable Scatter/Chase hotkeys (C/S/M) and window.forceMode(...)
+    this.enableDebugModeHotkeys();
+
     this.enterState(GamePhase.Ready);
   }
 
-  protected tick(dtMs: number): void {
-    if (this.state === GamePhase.Playing) {
-      this.pacman.update(dtMs);
-      const schedulerMode = this.modeScheduler.tick(dtMs);
-      const pacTile = this.pacman.getTilePosition();
-      const pacFacing = this.getPacmanFacingVector();
-      const blinkyTile = this.blinky ? this.blinky.getTile() : pacTile;
-      this.ghosts.forEach(g => g.updateGhost(dtMs, schedulerMode, pacTile, pacFacing, blinkyTile));
-      this.handlePacmanGhostCollisions();
-      this.handlePelletCollision();
-    }
+  private getPacTilePoint(): TilePoint {
+    const t = this.pacman.getTilePosition(); // { tileX, tileY }
+    return { x: t.tileX, y: t.tileY };
   }
+
+  protected tick(dtMs: number): void {
+  if (this.state === GamePhase.Playing) {
+    this.pacman.update(dtMs);
+
+    const scheduled = this.modeScheduler.tick(dtMs);
+    const schedulerMode = this.modeOverride ?? scheduled;
+
+    // ✅ Convert Pac-Man's tile to {x,y} for ghost AI
+    const pacTile: TilePoint = this.getPacTilePoint();
+    const pacFacing = this.getPacmanFacingVector();
+
+    const blinkyTile = this.blinky ? this.blinky.getTile() : pacTile;
+
+    this.ghosts.forEach(g => g.updateGhost(dtMs, schedulerMode, pacTile, pacFacing, blinkyTile));
+
+    this.handlePacmanGhostCollisions();
+    this.handlePelletCollision();
+  }
+}
 
   protected frame(_deltaMs: number): void {
     // no-op for now; reserved for future VFX
@@ -232,6 +251,34 @@ export class GameScene extends BasePlayScene {
         this.pacman.queueDirection(delta.y > 0 ? PacManDirection.Down : PacManDirection.Up);
       }
     });
+  }
+
+  // DEBUG MODE OVERRIDE: all debug key wiring lives here (easy to delete later)
+  private enableDebugModeHotkeys(): void {
+    if (!this.input.keyboard) return;
+
+    const keys = this.input.keyboard.addKeys({
+      chase: Phaser.Input.Keyboard.KeyCodes.C,
+      scatter: Phaser.Input.Keyboard.KeyCodes.S,
+      toggle: Phaser.Input.Keyboard.KeyCodes.M,
+      clear: Phaser.Input.Keyboard.KeyCodes.N, // optional: clear override (None)
+    }) as Record<string, Phaser.Input.Keyboard.Key>;
+
+    keys.chase.on('down',   () => { this.modeOverride = GhostMode.Chase;   console.log('[ModeOverride] Chase'); });
+    keys.scatter.on('down', () => { this.modeOverride = GhostMode.Scatter; console.log('[ModeOverride] Scatter'); });
+    keys.toggle.on('down',  () => {
+      this.modeOverride = this.modeOverride === GhostMode.Chase ? GhostMode.Scatter : GhostMode.Chase;
+      console.log('[ModeOverride] Toggled to', this.modeOverride);
+    });
+    keys.clear.on('down',   () => { this.modeOverride = null; console.log('[ModeOverride] Cleared (scheduler in control)'); });
+
+    // optional: devtools helper
+    (window as any).forceMode = (m: 'scatter' | 'chase' | null) => {
+      this.modeOverride = m === 'scatter' ? GhostMode.Scatter
+        : m === 'chase' ? GhostMode.Chase
+        : null;
+      console.log('[ModeOverride] forceMode =>', this.modeOverride);
+    };
   }
 
   private enterState(next: GamePhase): void {
