@@ -1,6 +1,8 @@
+// src/game/entities/ghost/GhostBase.ts
 import Phaser from 'phaser';
 import { TILE_SIZE, GHOST_FRAME, GhostName } from '../../config';
-import { PacManDirection } from '../PacMan';
+// ⬇️ decouple from PacMan.ts – use shared directions
+import { PacManDirection } from '../common/direction';
 import {
   GhostMode, TilePoint, DIRS, DIR_VECS,
   dirName, opposite, DEBUG_GHOSTS, LOG_GHOSTS, LOG_LEAVING_EVERY_TICK
@@ -76,8 +78,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     return { x: Math.floor(pt.x), y: Math.floor(pt.y) };
   }
   get modeCtx() { return this.mode; } // not used; compatibility
-  // end GhostNavCtx members:
-  // (mazeLayer, doorRect, x, y are inherited)
+  // end GhostNavCtx members
 
   // tiny logging helpers
   private log(msg: string) {
@@ -234,7 +235,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
       }
     }
 
-    // Step movement (grid-aware, center-to-center)
+    // Step movement (unchanged stepping logic)
     this.stepTowards(target, dtMs);
 
     if (this.debug) {
@@ -259,7 +260,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
       if (candidates.length === 0) {
         const h = this.getTile();
-        const stallKey = `${this.name}@${h.x},${h.y}:${this.mode}`;
+        const stallKey = `${this.name}@${h.x},${h.y}:%${this.mode}`;
         if (this.logEnabled && stallKey !== this.lastStallKey) {
           this.lastStallKey = stallKey;
           const reasons: string[] = [];

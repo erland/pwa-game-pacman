@@ -1,7 +1,8 @@
+// src/game/entities/ghost/GhostUtils.ts
 import Phaser from 'phaser';
 import { TILE_SIZE, TileIndex } from '../../config';
 import { GhostMode, TilePoint, DIRS, DIR_VECS } from './GhostTypes';
-import { PacManDirection } from '../PacMan';
+import { PacManDirection } from '../common/direction';
 
 export interface GhostNavCtx {
   mode: GhostMode;
@@ -19,6 +20,7 @@ export function atTileCenter(ctx: GhostNavCtx): boolean {
   const ty = Math.floor(pt.y);
   const cx = ctx.mazeLayer.tileToWorldX(tx) + TILE_SIZE / 2;
   const cy = ctx.mazeLayer.tileToWorldY(ty) + TILE_SIZE / 2;
+  // Keep your original tighter tolerance (pairs with ghost logic)
   return Math.abs(ctx.x - cx) < 0.25 && Math.abs(ctx.y - cy) < 0.25;
 }
 
@@ -37,7 +39,7 @@ export function distance2(a: TilePoint, b: TilePoint): number {
   return dx * dx + dy * dy;
 }
 
-// Collision & tiles
+// Collision & tiles (unchanged rules)
 export function isBlockedTile(ctx: GhostNavCtx, tx: number, ty: number): boolean {
   const map = ctx.mazeLayer.tilemap;
   if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return true;
@@ -94,7 +96,7 @@ export function blockReason(ctx: GhostNavCtx, tx: number, ty: number): string {
   return `open idx=${tile.index}`;
 }
 
-// Movement helpers
+// Movement helpers (still used by GhostBase)
 export function willCollide(
   ctx: GhostNavCtx,
   dir: PacManDirection,
