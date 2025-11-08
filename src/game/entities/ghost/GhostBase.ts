@@ -4,11 +4,11 @@ import { TILE_SIZE, GHOST_FRAME, GhostName } from '../../config';
 import { PacManDirection } from '../common/direction';
 import {
   GhostMode, TilePoint, DIRS, DIR_VECS,
-  dirName, opposite, DEBUG_GHOSTS, LOG_GHOSTS, LOG_LEAVING_EVERY_TICK
+  dirName, opposite, DEBUG_GHOSTS, LOG_GHOSTS
 } from './GhostTypes';
 import {
   GhostNavCtx, atTileCenter, currentTileCenterWorld, allowedDirections,
-  isBlockedTile, blockReason, distance2, willCollide, pickLeavingDirection
+  isBlockedTile, blockReason, distance2, willCollide
 } from './GhostUtils';
 import { ensureDebugDrawables, clearDebugDraw, drawGhostDebug, DebugHandles } from './GhostDebug';
 
@@ -51,10 +51,9 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   private logEnabled = LOG_GHOSTS;
   private dbg: DebugHandles = {};
   private lastStallKey?: string;
-  private lastTickKey?: string;
   private lastMode?: GhostMode;
 
-  // leaving-door bookkeeping
+  // leaving-door bookkeeping (used by states)
   private leavingDoorEntered = false;
   private leavingOutDir: PacManDirection | null = null;
 
@@ -86,6 +85,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
     if (this.logEnabled) {
       const t = this.getTile();
+      // eslint-disable-next-line no-console
       console.log(
         `[${this.name}] ctor: start world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y} baseSpeed=${this.baseSpeed} doorRect=(${this.doorRect.x},${this.doorRect.y},${this.doorRect.width},${this.doorRect.height})`
       );
@@ -122,11 +122,13 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   // tiny logging helpers
   private log(msg: string) {
     if (!this.logEnabled) return;
+    // eslint-disable-next-line no-console
     console.log(`[${this.name}] ${msg}`);
   }
   private logModeTransition(from: GhostMode, to: GhostMode, why: string) {
     if (!this.logEnabled) return;
     const t = this.getTile();
+    // eslint-disable-next-line no-console
     console.log(
       `[${this.name}] MODE ${from} -> ${to} (${why}) | world=(${this.x.toFixed(1)},${this.y.toFixed(1)}) tile=${t.x},${t.y} dir=${dirName(this.currentDirection)}`
     );
@@ -154,13 +156,6 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     }
   }
 
-  /** Called by scheduler to update global mode (scatter/chase) when not in special states. */
-  public applyScheduledMode(mode: GhostMode) {
-    if (this.mode === GhostMode.Scatter || this.mode === GhostMode.Chase) {
-      if (this.mode !== mode) this.setMode(mode, 'scheduler tick');
-    }
-  }
-
   public frighten(durationSec: number) {
     // Do NOT frighten in-pen, leaving, or when already eyes
     if (
@@ -171,10 +166,10 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     ) {
       return;
     }
-  
+
     this.setMode(GhostMode.Frightened, `frighten(${durationSec}s)`);
     this.frightenedTimerMs = durationSec * 1000;
-  
+
     // Immediate reverse on entry (classic behavior)
     if (this.currentDirection) this.currentDirection = opposite(this.currentDirection);
   }
@@ -194,13 +189,13 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
   ) {
     if (this.frozen) { if (this.debug) clearDebugDraw(this.dbg); return; }
 
-    // frightened timer
+    // frightened timer (can be moved into FrightenedState if you want base to be 100% mode-agnostic)
     if (this.mode === GhostMode.Frightened) {
       this.frightenedTimerMs -= dtMs;
       if (this.frightenedTimerMs <= 0) this.setMode(schedulerMode, 'frightened timeout');
     }
 
-    // chase/scatter follow scheduler changes
+    // Follow scheduler when in Scatter/Chase
     if (this.mode === GhostMode.Scatter || this.mode === GhostMode.Chase) {
       if (this.mode !== schedulerMode) this.setMode(schedulerMode, 'scheduler tick');
     }
@@ -218,14 +213,19 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
     this.updateFrameForMode();
   }
 
-  // --- Movement logic intact (unchanged) ---
+  // --- Movement logic: shared grid stepper ---
   protected stepTowards(target: TilePoint, dtMs: number) {
     const chooseDirIfCenter = () => {
       if (!atTileCenter(this)) return;
       const allowed = allowedDirections(this);
       let candidates = allowed;
 
-      if (this.currentDirection && this.mode !== GhostMode.Frightened && this.mode !== GhostMode.LeavingHouse) {
+      // No-reverse rule (allow reverse while Frightened/LeavingHouse/Eaten)
+      if (
+        this.currentDirection &&
+        this.mode !== GhostMode.Frightened &&
+        this.mode !== GhostMode.LeavingHouse
+      ) {
         const rev = opposite(this.currentDirection);
         candidates = allowed.filter((d) => d !== rev);
         if (candidates.length === 0) candidates = allowed;
@@ -248,12 +248,7 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
         return;
       }
 
-      if (this.mode === GhostMode.LeavingHouse) {
-        const here = this.getTile();
-        const preferred = pickLeavingDirection(here, target, candidates);
-        if (preferred) { this.currentDirection = preferred; return; }
-      }
-
+      // Pure greedy pick: state decides 'target'; base picks best neighbor toward it.
       let bestDir = candidates[0];
       let bestDist = Number.POSITIVE_INFINITY;
       const here = this.getTile();
