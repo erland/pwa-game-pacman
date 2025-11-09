@@ -1,8 +1,9 @@
 // src/game/entities/ghost/GhostUtils.ts
 import Phaser from 'phaser';
 import { TILE_SIZE, TileIndex } from '../../config';
-import { GhostMode, TilePoint, DIRS, DIR_VECS } from './GhostTypes';
+import { GhostMode, TilePoint, DIRS, DIR_VECS, opposite } from './GhostTypes';
 import { PacManDirection } from '../common/direction';
+import { CENTER_TOLERANCE_PX } from '../common/grid';
 
 export interface GhostNavCtx {
   mode: GhostMode;
@@ -13,6 +14,65 @@ export interface GhostNavCtx {
   getTile(): TilePoint;
 }
 
+
+// ---
+// Tile-based BFS pathfinding to select the *first* move toward a target tile.
+// Honors door passability via isBlockedTile(ctx, tx, ty) and can optionally
+// forbid immediately reversing direction (classic arcade rule). Neighbor order
+// uses Up, Left, Down, Right to match Pac‑Man tie-breaking.
+export function nextDirBFS(
+  ctx: GhostNavCtx,
+  start: TilePoint,
+  goal: TilePoint,
+  forbidReverseOf?: PacManDirection | null,
+  maxExplored: number = 4096
+): PacManDirection | null {
+  if (start.x === goal.x && start.y === goal.y) return null;
+
+  const key = (p: TilePoint) => p.x + ',' + p.y;
+  const startKey = key(start);
+
+  const q: TilePoint[] = [start];
+  const seen = new Set<string>([startKey]);
+  const firstMove = new Map<string, PacManDirection>();
+
+  let explored = 0;
+
+  while (q.length) {
+    const cur = q.shift()!;
+    if (++explored > maxExplored) break;
+
+    const curKey = key(cur);
+    if (cur.x === goal.x && cur.y === goal.y) {
+      return firstMove.get(curKey) ?? null;
+    }
+
+    for (const d of DIRS) {
+      // Forbid reverse only for the very first step out of 'start'.
+      if (curKey === startKey && forbidReverseOf && d === opposite(forbidReverseOf)) continue;
+
+      const v = DIR_VECS[d];
+      const nx = cur.x + (v.x as number);
+      const ny = cur.y + (v.y as number);
+      const k2 = nx + ',' + ny;
+
+      if (seen.has(k2)) continue;
+      // Bounds check from the tilemap itself:
+      const map = ctx.mazeLayer.tilemap;
+      if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
+      if (isBlockedTile(ctx, nx, ny)) continue;
+
+      seen.add(k2);
+      // Propagate the first move we took leaving 'start' to reach this node.
+      const fm = firstMove.get(curKey) ?? d;
+      firstMove.set(k2, fm);
+      q.push({ x: nx, y: ny });
+    }
+  }
+
+  return null;
+}
+
 // Math helpers
 export function atTileCenter(ctx: GhostNavCtx): boolean {
   const pt = ctx.mazeLayer.worldToTileXY(ctx.x, ctx.y);
@@ -20,8 +80,8 @@ export function atTileCenter(ctx: GhostNavCtx): boolean {
   const ty = Math.floor(pt.y);
   const cx = ctx.mazeLayer.tileToWorldX(tx) + TILE_SIZE / 2;
   const cy = ctx.mazeLayer.tileToWorldY(ty) + TILE_SIZE / 2;
-  // Keep your original tighter tolerance (pairs with ghost logic)
-  return Math.abs(ctx.x - cx) < 0.25 && Math.abs(ctx.y - cy) < 0.25;
+  // Use shared tolerance so center detection stays consistent project-wide.
+  return Math.abs(ctx.x - cx) < CENTER_TOLERANCE_PX && Math.abs(ctx.y - cy) < CENTER_TOLERANCE_PX;
 }
 
 export function currentTileCenterWorld(ctx: GhostNavCtx): Phaser.Math.Vector2 {

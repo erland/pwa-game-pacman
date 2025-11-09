@@ -23,7 +23,7 @@ export class EatenState extends GhostState {
   }
 
   update(g: Ghost, dtMs: number, _ctx: UpdateCtx): void {
-    g.setReverseAllowed(false);
+    g.setReverseAllowed(true);
     g.setSpeedMultiplier(1.6);
     const door = this.doorTile(g);
     const here = g.getTile();

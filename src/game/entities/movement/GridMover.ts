@@ -1,12 +1,13 @@
 import { PacManDirection, DIRECTION_VECTORS, OPPOSITES } from '../common/direction';
 import type { GridEnv } from './BlockProbe';
+import {CENTER_TOLERANCE_PX} from '../common/grid';
 
 export type WorldPoint = { x: number; y: number };
 
 export type GridMoverOptions = {
   /** Speed in pixels/second (matches your original Pac-Man). */
   speedPxPerSec: number;
-  /** Snap tolerance to consider “at center”. Default 0.5 px. */
+  /** Snap tolerance to consider “at center”. Default CENTER_TOLERANCE_PX. */
   snapTolerancePx?: number;
   /** Perpendicular snap threshold. Default 1.5 px. */
   perpendicularSnapPx?: number;
@@ -21,7 +22,7 @@ export class GridMover {
 
   constructor(private env: GridEnv, opts: GridMoverOptions) {
     this.speedPx = opts.speedPxPerSec;
-    this.snapTol = opts.snapTolerancePx ?? 0.5;
+    this.snapTol = opts.snapTolerancePx ?? CENTER_TOLERANCE_PX;
     this.perpSnap = opts.perpendicularSnapPx ?? 1.5;
   }
 

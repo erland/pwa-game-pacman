@@ -2,13 +2,14 @@
 import Phaser from 'phaser';
 import { TILE_SIZE, GHOST_FRAME, GhostName } from '../../config';
 import { PacManDirection } from '../common/direction';
+import { CENTER_TOLERANCE_PX } from '../common/grid';
 import {
   GhostMode, TilePoint, DIRS, DIR_VECS,
   dirName, opposite, DEBUG_GHOSTS, LOG_GHOSTS
 } from './GhostTypes';
 import {
   GhostNavCtx, atTileCenter, currentTileCenterWorld, allowedDirections,
-  isBlockedTile, blockReason, distance2, willCollide
+  blockReason, distance2, nextDirBFS
 } from './GhostUtils';
 import { ensureDebugDrawables, clearDebugDraw, drawGhostDebug, DebugHandles } from './GhostDebug';
 import { GhostMover } from './movement/GhostMover';
@@ -221,18 +222,49 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
 
   // --- Movement logic: shared grid stepper ---
   protected stepTowards(target: TilePoint, dtMs: number) {
+    // Pre-turn: if we'll hit the next center within this frame, queue the BFS turn now.
+    if (!atTileCenter(this) && this.currentDirection != null) {
+      const here = this.getTile();
+      const vcur = DIR_VECS[this.currentDirection];
+      const nextTile = { x: here.x + (vcur.x as number), y: here.y + (vcur.y as number) };
+      const nextCx = this.mazeLayer.tileToWorldX(nextTile.x) + TILE_SIZE / 2;
+      const nextCy = this.mazeLayer.tileToWorldY(nextTile.y) + TILE_SIZE / 2;
+      const reachPx = this.getSpeedPxPerSec() * (dtMs / 1000);
+      const preTurnPx = Math.max(CENTER_TOLERANCE_PX, reachPx + 0.1); // “I’ll reach it next tick”
+      const axisDist =
+        (this.currentDirection === PacManDirection.Left || this.currentDirection === PacManDirection.Right)
+          ? Math.abs(this.x - nextCx)
+          : Math.abs(this.y - nextCy);
+
+      if (axisDist <= preTurnPx) {
+        let candidates = allowedDirections(this);
+        if (this.currentDirection && !this.reverseAllowed) {
+          const rev = opposite(this.currentDirection);
+          candidates = candidates.filter((d) => d !== rev);
+          if (candidates.length === 0) candidates = allowedDirections(this); // fail-safe
+        }
+        if (candidates.length > 0) {
+          const bfsDir = nextDirBFS(this, here, target, this.reverseAllowed ? null : this.currentDirection);
+          if (bfsDir != null && candidates.includes(bfsDir)) {
+            // Queue now; GhostMover will apply it at the next tile center
+            this.mover.queue(bfsDir);
+          }
+        }
+      }
+    }
+
     // Decide/queue a direction only when centered on a tile
     if (atTileCenter(this)) {
       const allowed = allowedDirections(this);
       let candidates = allowed;
-  
+
       // Classic no-reverse rule (unless current state allows it)
       if (this.currentDirection && !this.reverseAllowed) {
         const rev = opposite(this.currentDirection);
         candidates = allowed.filter((d) => d !== rev);
         if (candidates.length === 0) candidates = allowed; // fail-safe
       }
-  
+
       if (candidates.length === 0) {
         // Keep your useful stall logging
         const h = this.getTile();
@@ -251,20 +283,31 @@ export abstract class Ghost extends Phaser.GameObjects.Sprite implements GhostNa
           );
         }
       } else {
-        // Greedy pick: neighbor minimizing distance^2 to target tile
+        // 1) Tile-first BFS for the next *tile* toward target (clean, no ping-pong).
         const here = this.getTile();
-        let bestDir = candidates[0];
-        let bestDist = Number.POSITIVE_INFINITY;
-  
-        for (const d of candidates) {
-          const v = DIR_VECS[d];
-          const nxt = { x: here.x + (v.x as number), y: here.y + (v.y as number) };
-          const dist = distance2(nxt, target);
-          if (dist < bestDist) { bestDist = dist; bestDir = d; }
+        const bfsDir = nextDirBFS(
+          this,
+          here,
+          target,
+          this.reverseAllowed ? null : this.currentDirection ?? null
+        );
+
+        if (bfsDir != null && candidates.includes(bfsDir)) {
+          this.currentDirection = bfsDir;
+          this.mover.queue(bfsDir); // GridMover keeps motion smooth (sub-tile)
+        } else {
+          // 2) Fallback: greedy neighbor minimizing distance² to target
+          let bestDir = candidates[0];
+          let bestDist = Number.POSITIVE_INFINITY;
+          for (const d of candidates) {
+            const v = DIR_VECS[d];
+            const nxt = { x: here.x + (v.x as number), y: here.y + (v.y as number) };
+            const dist = distance2(nxt, target);
+            if (dist < bestDist) { bestDist = dist; bestDir = d; }
+          }
+          this.currentDirection = bestDir;
+          this.mover.queue(bestDir);
         }
-  
-        this.currentDirection = bestDir;
-        this.mover.queue(bestDir); // let GridMover apply it safely at the next center
       }
     }
   
