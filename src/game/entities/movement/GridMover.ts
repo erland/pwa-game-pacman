@@ -79,30 +79,37 @@ export class GridMover {
   step(dtMs: number, pos: WorldPoint): void {
     // tryApplyQueuedDirection
     if (this.queued) {
+      const queued = this.queued;
+
       if (this.dir === null) {
-        if (this.canMoveInDirection(pos, this.queued)) {
-          this.dir = this.queued;
+        if (this.canMoveInDirection(pos, queued)) {
+          this.dir = queued;
           this.queued = null;
+          this.alignToTileCenter(pos);    // starting from rest: ok to align
         }
       } else {
-        const queued = this.queued;
         const isOpposite = OPPOSITES[this.dir] === queued;
+
         if (isOpposite) {
           if (this.canMoveInDirection(pos, queued, false)) {
             this.dir = queued;
-            this.queued = null;
+            this.queued = null;           // reverse mid-corridor: don't align
           }
         } else if (this.atTileCenter(pos) && this.canMoveInDirection(pos, queued)) {
-          this.dir = queued;
-          this.queued = null;
-          this.alignToTileCenter(pos);
+          if (queued !== this.dir) {
+            this.dir = queued;
+            this.queued = null;
+            this.alignToTileCenter(pos);  // align only when actually turning
+          } else {
+            // same dir at center → accept but DO NOT realign
+            this.queued = null;
+          }
         }
       }
     }
 
-    // advance
+    // advance (unchanged)
     if (this.dir === null) return;
-
     const v = DIRECTION_VECTORS[this.dir];
     const distance = (this.speedPx * dtMs) / 1000;
     const nextX = pos.x + v.x * distance;
