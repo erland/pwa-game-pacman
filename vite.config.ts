@@ -2,7 +2,10 @@
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const base = process.env.BASE_PATH || '/';  // "/" in dev; CI sets "/pwa-game-pacman/"
+
 export default defineConfig({
+  base,
   plugins: [
     VitePWA({
       // auto register SW + update when new build is available
