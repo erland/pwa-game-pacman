@@ -2,9 +2,9 @@ import Phaser from 'phaser';
 import { BasePlayScene } from '@erlandlindmark/pwa-game-2d-framework';
 import { MAP_CONFIG, TILE_SIZE, GhostName } from '../game/config';
 import { PacMan, PacManDirection } from '../game/entities/PacMan';
-import { BlinkyGhost, PinkyGhost, InkyGhost, ClydeGhost, GhostMode, Ghost } from '../game/entities/Ghost';
+import { BlinkyGhost, PinkyGhost, InkyGhost, ClydeGhost, GhostMode, Ghost } from '../game/entities/ghost';
 import { ModeScheduler } from '../game/logic/ModeScheduler';
-import { TilePoint } from '../game/entities/ghost/GhostTypes';
+import { TilePoint } from '../game/entities/ghost';
 import { GhostDebugHUD } from '../game/debug/GhostDebugHUD'; // ⬅️ NEW
 
 enum GamePhase {
