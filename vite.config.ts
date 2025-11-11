@@ -2,7 +2,8 @@
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const base = process.env.BASE_PATH || '/';  // "/" in dev; CI sets "/pwa-game-pacman/"
+const isCI = process.env.GITHUB_ACTIONS === 'true'
+const base = isCI ? '/pwa-game-pacman/' : '/'
 
 export default defineConfig({
   base,
