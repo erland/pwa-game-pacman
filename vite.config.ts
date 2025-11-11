@@ -24,8 +24,8 @@ export default defineConfig({
       manifest: {
         name: 'My 2D Game',
         short_name: '2D Game',
-        start_url: '/',
-        scope: '/',
+        start_url: '.',
+        scope: '.',
         display: 'standalone',
         background_color: '#000000',
         theme_color: '#000000',
